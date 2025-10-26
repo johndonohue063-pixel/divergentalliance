@@ -1,0 +1,24 @@
+import 'screens/weather_center.dart';
+import 'screens/castle_landing.dart';
+import 'package:flutter/material.dart';
+import 'screens/weather_center_gate.dart';
+
+import 'screens/landing_screen.dart';
+import 'scenes/castle_landing.dart';
+import "screens/landing_screen.dart";
+import "pages/weather_center.dart";
+
+void main() => runApp(const DivergentApp());
+
+class DivergentApp extends StatelessWidget {
+  const DivergentApp({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      routes: { WeatherCenter.route: (_) => const WeatherCenter(), WeatherCenterGate.route: (_) => const WeatherCenterGate() },,
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData.dark(useMaterial3: true),
+      home: const CastleLanding(),
+    );
+  }
+}

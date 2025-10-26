@@ -1,0 +1,14 @@
+﻿import 'package:flutter/material.dart';
+import 'package:divergent_alliance/ui/widgets/spark_button.dart';
+
+class DAButton extends StatelessWidget {
+  const DAButton({super.key, required this.onPressed, required this.child, this.height = 56, this.width, this.borderRadius = const BorderRadius.all(Radius.circular(18))});
+  final VoidCallback? onPressed; final Widget child; final double height; final double? width; final BorderRadius borderRadius;
+  @override Widget build(BuildContext context) => SparkButton(onPressed: onPressed, child: child, height: height, width: width, borderRadius: borderRadius);
+}
+
+class ImageButton extends StatelessWidget {
+  const ImageButton({super.key, required this.onPressed, required this.child, this.height = 56, this.width, this.borderRadius = const BorderRadius.all(Radius.circular(18))});
+  final VoidCallback? onPressed; final Widget child; final double height; final double? width; final BorderRadius borderRadius;
+  @override Widget build(BuildContext context) => SparkButton(onPressed: onPressed, child: child, height: height, width: width, borderRadius: borderRadius);
+}

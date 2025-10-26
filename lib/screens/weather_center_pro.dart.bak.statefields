@@ -1,0 +1,1092 @@
+import 'dart:math';
+import 'dart:ui' as ui;
+import 'package:flutter/material.dart';
+import '../services/wx_api.dart' show WxApi;
+import '../services/wx_api.dart' show WxApi;
+import '../services/wx_api.dart' show WxApi;
+import 'package:divergent_alliance/screens/weather_center.dart' as wc;
+import 'package:divergent_alliance/screens/weather_center_gate.dart' as gate;
+
+import 'package:divergent_alliance/security/pin_gate.dart';
+
+/// ================================================================
+/// WeatherCenterPro
+/// ================================================================
+
+class WeatherCenterPro extends StatefulWidget {
+  static const route = '/weather-center-pro'; // <-- added route name
+  const WeatherCenterPro({super.key});
+  @override
+  State<WeatherCenterPro> createState() => _WeatherCenterProState();
+}
+
+class _WeatherCenterProState extends State<WeatherCenterPro> {
+  // BRAND
+  static const kBrandOrange = Color(0xFFFF6A00);
+  static const kBrandBlack = Color(0xFF0E0E0E);
+
+  // FILTER STATE
+  String _region = 'National'; // legacy, harmless
+  String? _state;
+  String? _countyFips;
+  String _locationMode = 'Nationwide'; // Nationwide, Regional, State
+  String? _regionGroup;
+
+  final Set<String> _threats = {'Wind'}; // OR semantics
+
+  double _hours = 36; // UI slider goes to 120
+  bool _showDetails = true;
+
+  // DATA
+  final List<County> _counties = [];
+  final List<CountyWxSummary> _results = [];
+  bool _running = false;
+
+  // SERVICES
+  late final WxApi _api;
+  late final WxFusionEngine _fusion;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _api = WxApi();
+
+
+    // Real feeds via named-arg callbacks
+    _fusion = WxFusionEngine([
+      GenericSource('NBM',
+              ({required double lat, required double lon, required DateTime start, required DateTime end}) {
+            return _api.nbmTimeseries(lat: lat, lon: lon, start: start, end: end);
+          }),
+      GenericSource('HRRR',
+              ({required double lat, required double lon, required DateTime start, required DateTime end}) {
+            return _api.hrrrTimeseries(lat: lat, lon: lon, start: start, end: end);
+          }),
+      GenericSource('GFS',
+              ({required double lat, required double lon, required DateTime start, required DateTime end}) {
+            return _api.gfsTimeseries(lat: lat, lon: lon, start: start, end: end);
+          }),
+      GenericSource('NWS',
+              ({required double lat, required double lon, required DateTime start, required DateTime end}) {
+            return _api.nwsTimeseries(lat: lat, lon: lon, start: start, end: end);
+          }),
+    ]);
+
+    _counties.addAll([
+      County(
+        fips: '36019',
+        name: 'Clinton',
+        state: 'NY',
+        population: 79843,
+        lat: 44.73,
+        lon: -73.68,
+        geoProfile: champlainValley,
+        dominantDirDeg: 270, // kept for now, fusion still accepts it
+        windOutageProbability: 0.16,
+      ),
+    ]);
+  }
+
+  // =============================== UI ===============================
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: kBrandBlack,
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF121212),
+        elevation: 0,
+        titleSpacing: 0,
+        title: Row(
+          children: const [
+            SizedBox(width: 8),
+            _BrandDot(),
+            SizedBox(width: 10),
+            Flexible(
+              child: Text(
+                'Weather Center Pro',
+                overflow: TextOverflow.ellipsis,
+                softWrap: false,
+                style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 0.3),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          _cta(Icons.play_arrow_rounded, 'Run Report', _run),
+          const SizedBox(width: 8),
+          _cta(Icons.download_rounded, 'Export CSV', _export),
+          const SizedBox(width: 10),
+        ],
+      ),
+      body: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.all(16),
+            sliver: SliverList.list(
+              children: [
+                _filtersCard(),
+                const SizedBox(height: 12),
+                _kpiGrid(),
+                const SizedBox(height: 12),
+                if (_results.isNotEmpty) _crewStrip(_resultsToRows()),
+                const SizedBox(height: 12),
+                _resultsTable(),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _filtersCard() {
+    return _glassCard(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.tune, color: kBrandOrange),
+                const SizedBox(width: 8),
+                const Text('Filters', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                const Spacer(),
+                Switch(
+                  value: _showDetails,
+                  onChanged: (v) => setState(() => _showDetails = v),
+                  // keep visuals as-is
+                  activeColor: kBrandOrange,
+                ),
+                const SizedBox(width: 6),
+                const Text('Show details', style: TextStyle(color: Colors.white70)),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Location, Group/State, County
+            Wrap(
+  spacing: 12,
+  runSpacing: 12,
+  children: [
+    _pillDropdown<String>(
+      label: 'Location',
+      value: _locationMode,
+      items: const <String>['Nationwide', 'Regional', 'State'],
+      onChanged: (v) => setState(() {
+        _locationMode = v!;
+        _regionGroup = null;
+        _state = null;
+        _countyFips = null; // ensure no hidden pin
+      }),
+    ),
+
+    if (_locationMode == 'Regional')
+      _pillDropdown<String?>(
+        label: 'Region Group',
+        value: _regionGroup,
+        items: const <String?>[
+          null,
+          'Northeast','Southeast','Midwest','Southwest','Pacific','Mountain',
+          'Mid-Atlantic','Gulf Coast','Great Lakes','Plains',
+        ],
+        onChanged: (v) => setState(() {
+          _regionGroup = v;
+          _state = null;
+          _countyFips = null;
+        }),
+      )
+    else if (_locationMode == 'State')
+      _pillDropdown<String?>(
+        label: 'State',
+        value: _state,
+        items: const <String?>[
+          null,'AL','AK','AZ','AR','CA','CO','CT','DE','DC','FL','GA','HI','IA','ID','IL','IN','KS','KY','LA','MA','MD','ME','MI','MN','MO','MS','MT','NC','ND','NE','NH','NJ','NM','NV','NY','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VA','VT','WA','WI','WV','WY'
+        ],
+        onChanged: (v) => setState(() {
+          _state = v;
+          _countyFips = null;
+        }),
+      ),
+
+    // --- New filters that were missing ---
+    _pillDropdown<int>(
+      label: 'Threat =',
+      value: _threatMin,
+      items: const <int>[0, 1, 2, 3, 4, 5],
+      onChanged: (v) => setState(() => _threatMin = v ?? 0),
+    ),
+    _pillDropdown<int>(
+      label: 'Gust = (mph)',
+      value: _gustMin,
+      items: const <int>[0,10,20,30,40,50,60,70,80,90,100,110,120],
+      onChanged: (v) => setState(() => _gustMin = v ?? 0),
+    ),
+    _pillDropdown<int>(
+      label: 'Sustained = (mph)',
+      value: _sustainedMin,
+      items: const <int>[0,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80],
+      onChanged: (v) => setState(() => _sustainedMin = v ?? 0),
+    ),
+
+    // County will come back as a friendly "County" selector later.
+    // For now we intentionally omit it to avoid pinning to a single FIPS.
+  ],
+),
+            const SizedBox(height: 12),
+
+            // Threats
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _threatChip('Wind'),
+                  _threatChip('Snow & Ice'),
+                  _threatChip('Hurricane'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Window (to 120h)
+            Row(
+              children: [
+                Expanded(
+                  child: _sliderPill(
+                    title: 'Window (hours)',
+                    value: _hours,
+                    min: 12,
+                    max: 120,
+                    divisions: 36,
+                    onChanged: (v) => setState(() => _hours = v),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _kpiGrid() {
+    final agg = _aggregateKPIs();
+    return LayoutBuilder(
+      builder: (ctx, c) {
+        final isWide = c.maxWidth >= 900;
+        final cross = isWide ? 4 : 2;
+        return GridView.count(
+          crossAxisCount: cross,
+          physics: const NeverScrollableScrollPhysics(),
+          shrinkWrap: true,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: isWide ? 2.6 : 2.0,
+          children: [
+            kpiTile('Expected Gust', '${agg.expectedGust.toStringAsFixed(0)} mph', Icons.air_rounded),
+            kpiTile('Expected Sust.', '${agg.expectedSustained.toStringAsFixed(0)} mph', Icons.wind_power_rounded),
+            kpiTile('Severity', agg.severity, Icons.warning_amber_rounded),
+            kpiTile('Crew Rec', '${agg.crews.toStringAsFixed(0)} crews', Icons.groups_rounded),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _resultsTable() {
+    if (_results.isEmpty) {
+      return _glassCard(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: const [
+              Icon(Icons.info_outline, color: kBrandOrange),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Run a report to populate county forecasts, severity, and crew guidance.',
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return _glassCard(
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: DataTable(
+          dividerThickness: 0.6,
+          headingTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          dataTextStyle: const TextStyle(color: Colors.white),
+          columns: const [
+            DataColumn(label: Text('County')),
+            DataColumn(label: Text('State')),
+            DataColumn(label: Text('Expected Gust')),
+            DataColumn(label: Text('Expected Sust.')),
+            DataColumn(label: Text('Severity')),
+            DataColumn(label: Text('Crew Rec')),
+          ],
+          rows: _results
+              .map(
+                (r) => DataRow(
+              cells: [
+                DataCell(Text(r.countyName)),
+                DataCell(Text(r.state)),
+                DataCell(Text('${r.expectedGust.toStringAsFixed(0)} mph')),
+                DataCell(Text('${r.expectedSustained.toStringAsFixed(0)} mph')),
+                DataCell(Text(r.severity)),
+                DataCell(Text('${r.crews}')),
+              ],
+            ),
+          )
+              .toList(),
+        ),
+      ),
+    );
+  }
+
+  // ============================ ACTIONS ===========================
+  Future<void> _run() async {
+    if (_running) return;
+    setState(() => _running = true);
+    try {
+      final scope = _resolveScope();
+      final now = DateTime.now().toUtc();
+      final start = now;
+      final end = now.add(Duration(hours: _hours.round()));
+
+      final next = <CountyWxSummary>[];
+      for (final c in scope) {
+        final agg = await _fusion.fuse(
+          lat: c.lat,
+          lon: c.lon,
+          start: start,
+          end: end,
+          geo: c.geoProfile ?? const GeoProfile(name: 'Default', rules: []),
+          directionDeg: c.dominantDirDeg, // keep for now
+        );
+
+        final severity = classifySeverity(agg.expectedGustMph, agg.expectedSustainedMph);
+        final crews = recommendCrews(
+          population: c.population,
+          probability: c.windOutageProbability,
+          expectedGust: agg.expectedGustMph,
+          expectedSustained: agg.expectedSustainedMph,
+        );
+
+        next.add(CountyWxSummary(
+          countyName: c.name,
+          state: c.state,
+          expectedGust: agg.expectedGustMph,
+          expectedSustained: agg.expectedSustainedMph,
+          severity: severity,
+          crews: crews,
+        ));
+      }
+      setState(() {
+        _results
+          ..clear()
+          ..addAll(next);
+      });
+    } finally {
+      setState(() => _running = false);
+    }
+  }
+
+  void _export() {
+    if (_results.isEmpty) {
+      _snack('Nothing to export, run a report first.');
+      return;
+    }
+    final csv = _resultsToCsv();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF141414),
+        title: const Text('CSV Ready', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+        content: SingleChildScrollView(child: SelectableText(csv, style: const TextStyle(color: Colors.white70, fontSize: 12))),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close', style: TextStyle(color: kBrandOrange))),
+        ],
+      ),
+    );
+  }
+
+  // ====================== HELPERS (INSIDE CLASS) ======================
+  static Widget _cta(IconData icon, String label, VoidCallback onTap) {
+    return TextButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon),
+      label: Text(label),
+      style: TextButton.styleFrom(
+        foregroundColor: kBrandOrange,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        shape: const StadiumBorder(),
+        side: BorderSide(color: kBrandOrange.withOpacity(0.6)),
+      ),
+    );
+  }
+
+  Widget kpiTile(String title, String value, IconData icon) {
+    return _glassCard(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(icon, color: kBrandOrange),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                const SizedBox(height: 6),
+                Text(value, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _glassCard({required Widget child}) {
+    final r = BorderRadius.circular(16);
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [Color(0xFF0A0A0A), Color(0xFF141414)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        borderRadius: r,
+        border: Border.all(color: kBrandOrange.withOpacity(0.25), width: 1.0),
+        boxShadow: [BoxShadow(color: kBrandOrange.withOpacity(0.15), blurRadius: 24, spreadRadius: 1, offset: const Offset(0, 8))],
+      ),
+      child: ClipRRect(borderRadius: r, child: BackdropFilter(filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8), child: child)),
+    );
+  }
+
+  Widget _pillDropdown<T>({
+    required String label,
+    required T value,
+    required List<T> items,
+    required ValueChanged<T?> onChanged,
+  }) {
+    return _glassCard(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('$label: ', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            const SizedBox(width: 6),
+            DropdownButton<T>(
+              value: value,
+              dropdownColor: const Color(0xFF1C1C1C),
+              underline: const SizedBox.shrink(),
+              iconEnabledColor: kBrandOrange,
+              items: items
+                  .map((e) => DropdownMenuItem<T>(value: e, child: Text('${e ?? '-'}', style: const TextStyle(color: Colors.white))))
+                  .toList(),
+              onChanged: onChanged,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _threatIcon(String name) {
+    switch (name) {
+      case 'Wind':
+        return Icons.air_rounded;
+      case 'Snow & Ice':
+        return Icons.ac_unit_rounded;
+      case 'Hurricane':
+        return Icons.waves;
+      default:
+        return Icons.warning_amber_rounded;
+    }
+  }
+
+  Widget _threatChip(String name) {
+    final active = _threats.contains(name);
+    return ActionChip(
+      avatar: Icon(_threatIcon(name), size: 18, color: kBrandOrange),
+      label: Text(name),
+      labelStyle: const TextStyle(color: Colors.white),
+      backgroundColor: active ? kBrandBlack.withOpacity(0.45) : Colors.black26,
+      shape: StadiumBorder(
+        side: BorderSide(color: active ? kBrandOrange.withOpacity(0.85) : kBrandOrange.withOpacity(0.35)),
+      ),
+      onPressed: () => setState(() {
+        if (active) {
+          _threats.remove(name);
+          if (_threats.isEmpty) _threats.add('Wind');
+        } else {
+          _threats.add(name);
+        }
+      }),
+    );
+  }
+
+  // Slider pill INSIDE the class
+  Widget _sliderPill({
+    required String title,
+    required double value,
+    required double min,
+    required double max,
+    int? divisions,
+    required ValueChanged<double> onChanged,
+  }) {
+    return _glassCard(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                  Slider(
+                    min: min,
+                    max: max,
+                    value: value,
+                    divisions: divisions,
+                    onChanged: onChanged,
+                    activeColor: kBrandOrange,
+                    label: value.toStringAsFixed(0),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(value.toStringAsFixed(0), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+            const SizedBox(width: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---- Severity ladder + crews (bands stay CONSTANT) -------------
+  static const List<_SeverityBand> _bands = <_SeverityBand>[
+    _SeverityBand('Level 1', 30, 18),
+    _SeverityBand('Level 2', 45, 25),
+    _SeverityBand('Level 3', 58, 35),
+    _SeverityBand('Level 4', 75, 45),
+  ];
+
+  String classifySeverity(double expectedGust, double expectedSustained) {
+    String out = 'Level 0';
+    for (final b in _bands) {
+      if (expectedGust >= b.minGust || expectedSustained >= b.minSustained) {
+        out = b.level;
+      }
+    }
+    return out;
+  }
+
+  int recommendCrews({
+    required int population,
+    required double probability, // 0..1
+    required double expectedGust,
+    required double expectedSustained,
+  }) {
+    final raw = population * probability * 0.002;
+    final bump = 1.0 +
+        (expectedGust >= 58 ? 0.35 : expectedGust >= 45 ? 0.2 : expectedGust >= 30 ? 0.1 : 0.0) +
+        (expectedSustained >= 35 ? 0.2 : expectedSustained >= 25 ? 0.1 : 0.0);
+    var crews = (raw * bump).round();
+    if (population >= 2000000) crews = (crews * 0.85).round();
+    if (population >= 1000000) crews = (crews * 0.90).round();
+    return crews.clamp(0, 99999);
+  }
+
+  Widget _crewStrip(List<Map<String, dynamic>> rows) {
+    final byRegion = <String, num>{};
+    for (final r in rows) {
+      final region = (r['Cluster'] ?? r['Region'] ?? 'Region').toString();
+      byRegion[region] = (byRegion[region] ?? 0) + _num(r['Suggested Crews']);
+    }
+    final items = byRegion.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    return _glassCard(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Wrap(
+          spacing: 10,
+          runSpacing: 8,
+          children: items
+              .map(
+                (e) => ActionChip(
+              avatar: const Icon(Icons.groups_rounded, size: 18, color: kBrandOrange),
+              label: Text('${e.key}: ${e.value.toStringAsFixed(0)} crews'),
+              labelStyle: const TextStyle(color: Colors.white),
+              backgroundColor: kBrandBlack.withOpacity(0.35),
+              shape: StadiumBorder(side: BorderSide(color: kBrandOrange.withOpacity(0.70), width: 1.2)),
+              onPressed: () => _snack('Run regional report for ${e.key}'),
+            ),
+          )
+              .toList(),
+        ),
+      ),
+    );
+  }
+
+  List<County> _resolveScope() {
+    return _counties.where((c) {
+      if (_locationMode == 'State') {
+        if (_state != null && c.state != _state) return false;
+      } else if (_locationMode == 'Regional') {
+        if (_regionGroup != null && !_isInRegionGroup(c.state, _regionGroup!)) return false;
+      }
+      if (_countyFips != null && c.fips != _countyFips) return false;
+      return true;
+    }).toList();
+  }
+
+  bool _isInRegionGroup(String state, String group) {
+    const ne = {'ME', 'NH', 'VT', 'MA', 'RI', 'CT', 'NY', 'NJ', 'PA'};
+    const se = {'DE', 'MD', 'DC', 'VA', 'NC', 'SC', 'GA', 'FL', 'AL', 'MS', 'TN', 'KY', 'AR', 'LA'};
+    const mw = {'OH', 'MI', 'IN', 'IL', 'WI', 'MN', 'IA', 'MO'};
+    const sw = {'AZ', 'NM', 'TX', 'OK'};
+    const pac = {'CA', 'OR', 'WA', 'AK', 'HI'};
+    const mtn = {'CO', 'UT', 'NV', 'ID', 'MT', 'WY'};
+    const midAtl = {'NY', 'NJ', 'PA', 'DE', 'MD', 'DC', 'VA', 'WV'};
+    const gulf = {'TX', 'LA', 'MS', 'AL', 'FL'};
+    const lakes = {'MN', 'WI', 'IL', 'IN', 'MI', 'OH', 'PA', 'NY'};
+    const plains = {'ND', 'SD', 'NE', 'KS', 'OK', 'TX', 'IA', 'MO'};
+
+    final m = {
+      'Northeast': ne,
+      'Southeast': se,
+      'Midwest': mw,
+      'Southwest': sw,
+      'Pacific': pac,
+      'Mountain': mtn,
+      'Mid-Atlantic': midAtl,
+      'Gulf Coast': gulf,
+      'Great Lakes': lakes,
+      'Plains': plains,
+    };
+    final set = m[group];
+    return set == null ? true : set.contains(state);
+  }
+
+  _KpiSummary _aggregateKPIs() {
+    if (_results.isEmpty) {
+      return const _KpiSummary(expectedGust: 0, expectedSustained: 0, severity: 'Level 0', crews: 0);
+    }
+    final g = _results.map((e) => e.expectedGust).toList();
+    final s = _results.map((e) => e.expectedSustained).toList();
+    double avg(List<double> xs) => xs.reduce((a, b) => a + b) / max(1, xs.length);
+    final gust = avg(g);
+    final sust = avg(s);
+    final sev = classifySeverity(gust, sust);
+    final crews = _results.map((e) => e.crews).fold<int>(0, (a, b) => a + b);
+    return _KpiSummary(expectedGust: gust, expectedSustained: sust, severity: sev, crews: crews.toDouble());
+  }
+
+  List<Map<String, dynamic>> _resultsToRows() {
+    String clusterFor(String st) {
+      if (['NY', 'VA', 'NC', 'SC', 'GA', 'FL'].contains(st)) return 'East';
+      if (['TX'].contains(st)) return 'Central';
+      if (['CA'].contains(st)) return 'West';
+      return 'National';
+    }
+    return _results
+        .map((r) => {
+      'Cluster': clusterFor(r.state),
+      'Region': clusterFor(r.state),
+      'County': r.countyName,
+      'State': r.state,
+      'Expected Gust': r.expectedGust,
+      'Expected Sustained': r.expectedSustained,
+      'Severity': r.severity,
+      'Suggested Crews': r.crews,
+    })
+        .toList();
+  }
+
+  String _resultsToCsv() {
+    final rows = _resultsToRows();
+    if (rows.isEmpty) return '';
+    final headers = rows.first.keys.toList();
+    final sb = StringBuffer()..writeln(headers.join(','));
+    for (final r in rows) {
+      sb.writeln(headers.map((h) => '${r[h]}').join(','));
+    }
+    return sb.toString();
+  }
+
+  void _snack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: const Color(0xFF1E1E1E),
+    ));
+  }
+
+  num _num(dynamic v) {
+    if (v is num) return v;
+    if (v is String) {
+      final s = v.replaceAll(RegExp(r'[^0-9.\-]'), '');
+      return num.tryParse(s) ?? 0;
+    }
+    return 0;
+  }
+}
+
+// ============================ MODELS =============================
+class County {
+  final String fips;
+  final String name;
+  final String state;
+  final int population;
+  final double lat;
+  final double lon;
+  final GeoProfile? geoProfile;
+  final double windOutageProbability; // 0..1
+  double dominantDirDeg;
+  County({
+    required this.fips,
+    required this.name,
+    required this.state,
+    required this.population,
+    required this.lat,
+    required this.lon,
+    this.geoProfile,
+    required this.windOutageProbability,
+    required this.dominantDirDeg,
+  });
+}
+
+class CountyWxSummary {
+  final String countyName;
+  final String state;
+  final double expectedGust;
+  final double expectedSustained;
+  final String severity;
+  final int crews;
+  CountyWxSummary({
+    required this.countyName,
+    required this.state,
+    required this.expectedGust,
+    required this.expectedSustained,
+    required this.severity,
+    required this.crews,
+  });
+}
+
+class _KpiSummary {
+  final double expectedGust;
+  final double expectedSustained;
+  final String severity;
+  final double crews;
+  const _KpiSummary({
+    required this.expectedGust,
+    required this.expectedSustained,
+    required this.severity,
+    required this.crews,
+  });
+}
+
+// ===================== FUSION + GEO EFFECTS ======================
+typedef WxTimeseriesFetcher = Future<List<dynamic>> Function({
+required double lat,
+required double lon,
+required DateTime start,
+required DateTime end,
+});
+
+class ForecastSample {
+  final DateTime ts;
+  final double sustainedMph;
+  final double gustMph;
+  final String source;
+  final double? dirDeg;
+  ForecastSample(this.ts, this.sustainedMph, this.gustMph, this.source, {this.dirDeg});
+}
+
+class ForecastAggregate {
+  final DateTime windowStart;
+  final DateTime windowEnd;
+  final double avgSustainedMph;
+  final double avgGustMph;
+  final double expectedSustainedMph;
+  final double expectedGustMph;
+  final Map<String, double> sourceWeights;
+  ForecastAggregate({
+    required this.windowStart,
+    required this.windowEnd,
+    required this.avgSustainedMph,
+    required this.avgGustMph,
+    required this.expectedSustainedMph,
+    required this.expectedGustMph,
+    required this.sourceWeights,
+  });
+}
+
+class GeoProfile {
+  final String name;
+  final List<DirectionalRule> rules;
+  const GeoProfile({required this.name, required this.rules});
+}
+
+class DirectionalRule {
+  final double fromDeg;
+  final double toDeg;
+  final double multiplier;
+  const DirectionalRule(this.fromDeg, this.toDeg, this.multiplier);
+  bool matches(double deg) =>
+      fromDeg <= toDeg ? (deg >= fromDeg && deg <= toDeg) : (deg >= fromDeg || deg <= toDeg);
+}
+
+const champlainValley =
+GeoProfile(name: 'Champlain Valley', rules: [DirectionalRule(260, 320, 0.80)]);
+
+abstract class WxSource {
+  String get name;
+  Future<List<ForecastSample>> fetch({
+    required double lat,
+    required double lon,
+    required DateTime start,
+    required DateTime end,
+  });
+}
+
+class GenericSource implements WxSource {
+  GenericSource(this.name, this.fetcher);
+  @override
+  final String name;
+  final WxTimeseriesFetcher fetcher;
+
+  @override
+  Future<List<ForecastSample>> fetch({
+    required double lat,
+    required double lon,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    final rows = await fetcher(lat: lat, lon: lon, start: start, end: end);
+    return _mapRowsToSamples(rows, name);
+  }
+}
+
+class WxFusionEngine {
+  final List<WxSource> sources;
+  WxFusionEngine(this.sources);
+
+  Future<ForecastAggregate> fuse({
+    required double lat,
+    required double lon,
+    required DateTime start,
+    required DateTime end,
+    required GeoProfile geo,
+    required double directionDeg,
+  }) async {
+    final all = <ForecastSample>[];
+    for (final s in sources) {
+      try {
+        all.addAll(await s.fetch(lat: lat, lon: lon, start: start, end: end));
+      } catch (_) {}
+    }
+    if (all.isEmpty) {
+      return ForecastAggregate(
+        windowStart: start,
+        windowEnd: end,
+        avgSustainedMph: 0,
+        avgGustMph: 0,
+        expectedSustainedMph: 0,
+        expectedGustMph: 0,
+        sourceWeights: const {},
+      );
+    }
+
+    final bySource = <String, List<ForecastSample>>{};
+    for (final r in all) {
+      bySource.putIfAbsent(r.source, () => []).add(r);
+    }
+
+    final sustainedVals = <double>[];
+    final gustVals = <double>[];
+    bySource.forEach((_, list) {
+      final sAvg = list.map((e) => e.sustainedMph).reduce((a, b) => a + b) / list.length;
+      final gAvg = list.map((e) => e.gustMph).reduce((a, b) => a + b) / list.length;
+      sustainedVals.add(sAvg);
+      gustVals.add(gAvg);
+    });
+
+    double mean(List<double> xs) => xs.reduce((a, b) => a + b) / max(1, xs.length);
+
+    double trimmedMean(List<double> xs) {
+      if (xs.length <= 2) return mean(xs);
+      final sorted = [...xs]..sort();
+      final trim = max(1, (sorted.length * 0.15).floor());
+      final middle = sorted.sublist(trim, sorted.length - trim);
+      return mean(middle);
+    }
+
+    var expectedS = trimmedMean(sustainedVals);
+    var expectedG = trimmedMean(gustVals);
+
+    double geoMult = 1.0;
+    for (final r in geo.rules) {
+      if (r.matches(directionDeg)) geoMult *= r.multiplier;
+    }
+    geoMult = geoMult.clamp(0.5, 1.25);
+
+    expectedS *= geoMult;
+    expectedG *= geoMult;
+
+    return ForecastAggregate(
+      windowStart: start,
+      windowEnd: end,
+      avgSustainedMph: mean(sustainedVals),
+      avgGustMph: mean(gustVals),
+      expectedSustainedMph: expectedS,
+      expectedGustMph: expectedG,
+      sourceWeights: {for (final k in bySource.keys) k: 1.0},
+    );
+  }
+}
+
+// ============== universal mapping helpers for adapters ===============
+List<ForecastSample> _mapRowsToSamples(List<dynamic> rows, String source) {
+  final out = <ForecastSample>[];
+  for (final r in rows) {
+    if (r is Map<String, dynamic>) {
+      final ts = _parseTs(r);
+      if (ts == null) continue;
+      final sustained =
+          _pickDouble(r, ['sustained', 'windSustained', 'wind_speed', 'windSpeed']) ??
+              _mphFromString(r['windSpeed']) ??
+              0.0;
+      final gust =
+          _pickDouble(r, ['gust', 'windGust', 'wind_gust']) ??
+              _mphFromString(r['windGust']) ??
+              max(sustained, 0.0);
+      final dir =
+          _pickDouble(r, ['dir', 'windDir', 'wind_direction']) ??
+              _degFromCardinal(r['windDirection']);
+      out.add(ForecastSample(ts, sustained.toDouble(), gust.toDouble(), source, dirDeg: dir));
+    } else if (r is List && r.length >= 3) {
+      final ts = _parseFlexibleTs(r[0]);
+      if (ts == null) continue;
+      final sustained = _asDouble(r[1]) ?? 0.0;
+      final gust = _asDouble(r[2]) ?? sustained;
+      final dir = r.length > 3 ? _asDouble(r[3]) : null;
+      out.add(ForecastSample(ts, sustained, gust, source, dirDeg: dir));
+    }
+  }
+  return out;
+}
+
+DateTime? _parseTs(Map<String, dynamic> m) {
+  for (final k in ['ts', 'time', 'timestamp', 'validTime', 'startTime', 'valid_time']) {
+    final d = _parseFlexibleTs(m[k]);
+    if (d != null) return d;
+  }
+  return null;
+}
+
+DateTime? _parseFlexibleTs(dynamic v) {
+  if (v is DateTime) return v.toUtc();
+  if (v is int) {
+    return DateTime.fromMillisecondsSinceEpoch(v > 2000000000 ? v : v * 1000, isUtc: true);
+  }
+  if (v is String) {
+    try {
+      return DateTime.parse(v).toUtc();
+    } catch (_) {}
+  }
+  return null;
+}
+
+double? _pickDouble(Map<String, dynamic> m, List<String> keys) {
+  for (final k in keys) {
+    final d = _asDouble(m[k]);
+    if (d != null) return d;
+  }
+  return null;
+}
+
+double? _asDouble(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toDouble();
+  if (v is String) {
+    final n = double.tryParse(v.trim());
+    if (n != null) return n;
+    final match = RegExp(r'(-?\d+(\.\d+)?)').firstMatch(v);
+    if (match != null) return double.tryParse(match.group(1)!);
+  }
+  return null;
+}
+
+double? _mphFromString(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toDouble();
+  if (v is String) {
+    final all = RegExp(r'(-?\d+(\.\d+)?)').allMatches(v);
+    if (all.isEmpty) return null;
+    final nums = all.map((m) => double.parse(m.group(1)!)).toList();
+    return nums.length > 1 ? nums.reduce(max) : nums.first;
+  }
+  return null;
+}
+
+double? _degFromCardinal(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toDouble();
+  if (v is String) {
+    const map = {
+      'N': 0,
+      'NNE': 22.5,
+      'NE': 45,
+      'ENE': 67.5,
+      'E': 90,
+      'ESE': 112.5,
+      'SE': 135,
+      'SSE': 157.5,
+      'S': 180,
+      'SSW': 202.5,
+      'SW': 225,
+      'WSW': 247.5,
+      'W': 270,
+      'WNW': 292.5,
+      'NW': 315,
+      'NNW': 337.5
+    };
+    final k = v.toUpperCase().replaceAll(RegExp(r'[^A-Z]'), '');
+    if (map.containsKey(k)) return map[k]!.toDouble();
+  }
+  return null;
+}
+
+// ========================== BRAND DOT ============================
+class _BrandDot extends StatelessWidget {
+  const _BrandDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 10,
+      height: 10,
+      decoration: const BoxDecoration(
+        color: _WeatherCenterProState.kBrandOrange,
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+}
+
+// === Severity band type must be OUTSIDE any class in Dart =========
+class _SeverityBand {
+  final String level;
+  final double minGust;
+  final double minSustained;
+  const _SeverityBand(this.level, this.minGust, this.minSustained);
+}

@@ -1,0 +1,5 @@
+<!-- android/app/src/debug/AndroidManifest.xml -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.divergent.alliance">
+    <uses-permission android:name="android.permission.INTERNET" />
+</manifest>

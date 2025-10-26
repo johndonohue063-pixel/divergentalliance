@@ -1,0 +1,13 @@
+﻿include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - lib/**.bak
+    - lib/**/*.bak
+    - lib_backup/**
+    - lib_backup_**
+    - z_archive/**
+    - ps_backups/**
+    - lib/_archive/**
+  language:
+    strict-inference: false

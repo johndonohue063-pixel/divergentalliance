@@ -1,0 +1,210 @@
+﻿import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'services/wx_client.dart';
+
+import 'dart:math' as math;
+const kBrandOrange = Color(0xFFF38B2B);
+
+// ---- Color rules for threat -----------------------------------------------
+Color threatColorFromProb(num? p) {
+  final pp = (p ?? 0).toDouble();
+  if (pp >= 45) return const Color(0xFFB71C1C); // red
+  if (pp >= 30) return const Color(0xFFE65100); // orange
+  if (pp >= 20) return const Color(0xFFF9A825); // yellow
+  return const Color(0xFF2E7D32);               // green
+}
+String threatBand(num? p) {
+  final pp = (p ?? 0).toDouble();
+  if (pp >= 45) return 'Level 3';
+  if (pp >= 30) return 'Level 2';
+  if (pp >= 20) return 'Level 1';
+  return 'Low';
+}
+
+class WeatherCenter extends StatefulWidget {
+  const WeatherCenter({super.key});
+  @override
+  State<WeatherCenter> createState() => _WeatherCenterState();
+}
+
+class _WeatherCenterState extends State<WeatherCenter> {
+
+
+  // ---- Adjusted-column helpers (safe, read-only) ----
+  bool _hasAdjustedColumns() {
+    if (_rows.isEmpty) return false;
+    final r = _rows.first;
+    return r.containsKey('Wind Outage Probability % (Adjusted)') ||
+           r.containsKey('Predicted Customers Out (Adjusted)') ||
+           r.containsKey('Threat Level (Adjusted)');
+  }
+  num? _numAdjusted(Map r, List<String> keys) {
+    num? parseAny(List<String> kk) {
+      for (final k in kk) {
+        final v = r[k];
+        if (v == null) continue;
+        final s = v.toString().replaceAll('%','').replaceAll(',','').trim();
+        final n = num.tryParse(s);
+        if (n != null) return n;
+      }
+      return null;
+    }
+    if (_hasAdjustedColumns()) {
+      final adj = <String>[];
+      for (final k in keys) { adj.add("\ (Adjusted)"); }
+      final n = parseAny(adj);
+      if (n != null) return n;
+    }
+    return parseAny(keys);
+  }
+  Widget _adjustedFootnote() {
+    if (!_hasAdjustedColumns()) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 6.0),
+      child: Row(
+        children: const [
+          Icon(Icons.fact_check, size: 14, color: Color(0xFF90CAF9)),
+          SizedBox(width: 6),
+          Text('Adjusted for D+7 cap with NE/MA boost active',
+            style: TextStyle(fontSize: 12, color: Color(0xFF90CAF9))),
+        ],
+      ),
+    );
+  }
+// ---- Models for aggregation -------------------------------------------------
+}
+class _StateAgg {
+  _StateAgg({required this.state});
+  final String state;
+  num? maxProb;
+  double score = 0.0;
+  double totalCustomers = 0.0;
+  final List<Map<String,dynamic>> counties = [];
+}
+
+// ---- Widgets ---------------------------------------------------------------
+
+class _StateCard extends StatefulWidget {
+const _StateCard({super.key, required this.agg, required this.pick, required this.probOf, required this.custOf});
+  final _StateAgg agg;
+  final String Function(Map, List<String>, {String fallback}) pick;
+  final num? Function(Map) probOf;
+  final num? Function(Map) custOf;
+
+  @override
+  State<_StateCard> createState() => _StateCardState();
+}
+
+class _StateCardState extends State<_StateCard> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = widget.agg.maxProb ?? 0;
+    final c = widget.agg.totalCustomers.round();
+    final color = threatColorFromProb(p);
+
+    return Card(
+      color: const Color(0xFF0D0D0D),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: InkWell(
+        onTap: () => setState(() => _open = !_open),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  // colored dot
+                  Container(width: 12, height: 12, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(widget.agg.state,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  ),
+                  Text('Prob: ${p.round()}    Cust: $c'),
+                  const SizedBox(width: 8),
+                  Icon(_open ? Icons.expand_less : Icons.expand_more),
+                ],
+              ),
+              if (_open) const SizedBox(height: 10),
+              if (_open)
+                Column(
+                  children: [
+                    for (final r in widget.agg.counties) _CountyTile(row: r, pick: widget.pick),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CountyTile extends StatelessWidget {
+  const _CountyTile({required this.row, required this.pick});
+  final Map row;
+  final String Function(Map, List<String>, {String fallback}) pick;
+
+  @override
+  Widget build(BuildContext context) {
+    final county = pick(row, ['county','county_name','County'], fallback: '—');
+    final state  = pick(row, ['state','state_abbr','state_code','State'], fallback: '—');
+    final prob   = pick(row, ['wind_outage_probability','prob','Wind Outage Probability %']);
+    final threat = pick(row, ['threat_level','threat','Threat Level']);
+    final cust   = pick(row, ['predicted_customers_out','customers_out','customers','Predicted Customers Out']);
+    final crews  = pick(row, ['recommended_crews','suggested_crews','crew_count','Suggested Crews','Recommended Crews']);
+    final impact = pick(row, ['predicted_impact_date_peak','predicted_impact_date_(peak)','Predicted Impact Date (peak)']);
+    final staging   = pick(row, ['staging_suggestions','Staging Suggestions']);
+    final utilities = pick(row, ['primary_secondary_utilities','Primary + Secondary Utilities']);
+    final probNum = num.tryParse(prob.replaceAll('%','').replaceAll(',','')) ?? 0;
+    final color = threatColorFromProb(probNum);
+
+    Widget chip(String label) => Chip(
+      label: Text(label),
+      backgroundColor: const Color(0xFF1B1B1B),
+      side: BorderSide(color: Colors.white.withOpacity(0.08)),
+      labelStyle: const TextStyle(fontSize: 12, color: Colors.white70),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    );
+
+    return Card(
+      color: const Color(0xFF121212),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: ListTile(
+        leading: Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        title: Text('$county, $state'),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Wrap(
+            spacing: 10, runSpacing: -8, children: [
+            if (prob.isNotEmpty) chip('Prob: $prob'),
+            if (threat.isNotEmpty) chip('Threat: $threat'),
+            if (cust.isNotEmpty) chip('Customers: $cust'),
+            if (crews.isNotEmpty) chip('Crews: $crews'),
+            if (impact.isNotEmpty) chip('Impact: $impact'),
+            if (staging.isNotEmpty) chip('Staging: $staging'),
+            if (utilities.isNotEmpty) chip('Utilities: $utilities'),
+          ],
+          ),
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () {
+          // Future: deep-link to a county endpoint if you add it server-side.
+          // final uri = WxClient.countyUri(state: state, county: county, format: 'json');
+          // launchUrl(uri, mode: LaunchMode.externalApplication);
+        },
+      ),
+    );
+  }
+}
+
+
+
+
+
+
+
+
+

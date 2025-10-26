@@ -1,0 +1,29 @@
+import 'dart:async';
+
+class WxApi {
+  const WxApi();
+
+  static Future<String> health() async => 'ok';
+
+  static Future<List<Map<String, dynamic>>> national({
+    required int windMph,
+    int? horizonHours,
+    String? state,
+    String? region,
+  }) async {
+    await Future.delayed(const Duration(milliseconds: 100));
+    return <Map<String, dynamic>>[];
+  }
+
+  static Future<Map<String, dynamic>> forecastPoint({
+    required double lat,
+    required double lon,
+  }) async {
+    return <String, dynamic>{};
+  }
+
+  static Future<List<Map<String, dynamic>>> alertsByState(String state) async =>
+      [];
+  static Future<List<Map<String, dynamic>>> threats({String? cluster}) async =>
+      [];
+}

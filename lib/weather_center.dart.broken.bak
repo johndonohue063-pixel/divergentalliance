@@ -1,0 +1,476 @@
+﻿ param($m) $m.Value + "`r`n// Wx client instance for API calls`r`nfinal WxClient wx = WxClient();`r`n" // lib/weather_center.dart
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'services/wx_client.dart';
+
+const kBrandOrange = Color(0xFFF38B2B);
+
+class WeatherCenter extends StatefulWidget {
+  static const route = '/weather';
+  const WeatherCenter({super.key});
+  @override
+  State<WeatherCenter> createState() => _WeatherCenterState();
+}
+
+class _WeatherCenterState extends State<WeatherCenter> {
+  final Map<String, String> _regions = const {
+    'National': 'national',
+    'South East': 'southeast',
+    'Gulf': 'gulf',
+    'Midwest': 'midwest',
+    'Northeast': 'northeast',
+    'West': 'west',
+  };
+
+  // Full US (+ DC). 'None' means no state filter.
+  final Map<String, String> _states = const {
+    'None': '',
+    'Alabama': 'AL','Alaska': 'AK','Arizona': 'AZ','Arkansas': 'AR','California': 'CA','Colorado': 'CO',
+    'Connecticut': 'CT','Delaware': 'DE','District of Columbia': 'DC','Florida': 'FL','Georgia': 'GA',
+    'Hawaii': 'HI','Idaho': 'ID','Illinois': 'IL','Indiana': 'IN','Iowa': 'IA','Kansas': 'KS','Kentucky': 'KY',
+    'Louisiana': 'LA','Maine': 'ME','Maryland': 'MD','Massachusetts': 'MA','Michigan': 'MI','Minnesota': 'MN',
+    'Mississippi': 'MS','Missouri': 'MO','Montana': 'MT','Nebraska': 'NE','Nevada': 'NV','New Hampshire': 'NH',
+    'New Jersey': 'NJ','New Mexico': 'NM','New York': 'NY','North Carolina': 'NC','North Dakota': 'ND','Ohio': 'OH',
+    'Oklahoma': 'OK','Oregon': 'OR','Pennsylvania': 'PA','Rhode Island': 'RI','South Carolina': 'SC','South Dakota': 'SD',
+    'Tennessee': 'TN','Texas': 'TX','Utah': 'UT','Vermont': 'VT','Virginia': 'VA','Washington': 'WA',
+    'West Virginia': 'WV','Wisconsin': 'WI','Wyoming': 'WY',
+  };
+
+  final Map<String, List<String>> _regionStates = const {
+    'northeast': ['ME','NH','VT','MA','RI','CT','NY','NJ','PA','DE'],
+    'southeast': ['VA','NC','SC','GA','FL','AL','MS','TN'],
+    'gulf': ['FL','AL','MS','LA','TX'],
+    'midwest': ['ND','SD','NE','KS','MN','IA','MO','WI','IL','MI','IN','OH'],
+    'west': ['WA','OR','CA','NV','AZ','UT','ID','MT','WY','CO','NM','AK','HI'],
+  };
+
+  String _regionPretty = 'Northeast';
+  String _statePretty = 'None';
+  final _windCtl = TextEditingController(text: '35');
+  int _days = 5;
+
+  bool _busy = false;
+  String? _error;
+  String? _note;
+  List<Map<String, dynamic>> _rows = const [];
+  int _runToken = 0;
+
+  String get _regionParam => _regions[_regionPretty] ?? 'national';
+  String get _stateParam => _states[_statePretty] ?? '';
+  int get _windMph => int.tryParse(_windCtl.text) ?? 35;
+
+  // Mutual exclusion: pick state → region locks; pick region → state locks.
+  bool get _regionDisabled => _stateParam.isNotEmpty;
+  bool get _stateDisabled  => _regionParam != 'national';
+
+  @override
+  void initState() {
+    super.initState();
+    dawx.wx.discover(); // sets base URL per platform
+  }
+
+  @override
+  void dispose() {
+    _windCtl.dispose();
+    super.dispose();
+  }
+
+  String _friendlyError(Object e) {
+    final s = e.toString();
+    if (s.contains('TimeoutException')) {
+      return 'Server took too long to respond. Ensure backend is running and app points to 10.0.2.2:8010 (Android emulator).';
+    }
+    if (s.contains('SocketException') || s.contains('Connection refused')) {
+      return 'Can’t reach backend. On emulator use 10.0.2.2:8010. On device, run: adb reverse tcp:8010 tcp:8010.';
+    }
+    return s;
+  }
+
+  num _asNum(dynamic v) {
+    if (v is num) return v;
+    if (v is String) return num.tryParse(v.replaceAll(',', '').trim()) ?? 0;
+    return 0;
+  }
+
+  num _mphOf(Map<String, dynamic> m) {
+    for (final v in [
+      m['Peak Wind mph'], m['Wind mph'], m['Gust mph'],
+      m['peak_wind_mph'], m['wind_mph'], m['gust_mph'], m['wind_gust_max'],
+    ]) {
+      if (v == null) continue;
+      if (v is num) return v;
+      if (v is String) {
+        final n = num.tryParse(v.replaceAll(',', '').trim());
+        if (n != null) return n;
+      }
+    }
+    return -1;
+  }
+
+  List<Map<String, dynamic>> _filterToRegionStates(List<Map<String, dynamic>> list, String regionKey) {
+    final states = _regionStates[regionKey];
+    if (states == null) return list;
+    final set = states.toSet();
+    return list.where((m) {
+      final s = '${m['State'] ?? m['state'] ?? ''}'.toUpperCase().trim();
+      return set.contains(s);
+    }).toList();
+  }
+
+  List<Map<String, dynamic>> _applyClientFilters(List<Map<String, dynamic>> list) {
+    if (_stateParam.isNotEmpty) {
+      list = list.where((m) {
+        final s = '${m['State'] ?? m['state'] ?? ''}'.toUpperCase().trim();
+        return s == _stateParam;
+      }).toList();
+    }
+    list = list.where((m) {
+      final w = _mphOf(m);
+      return w < 0 ? true : w >= _windMph;
+    }).toList();
+
+    list.sort((b, a) => _asNum(a['Predicted Customers Out'] ?? a['predicted_customers_out'])
+        .compareTo(_asNum(b['Predicted Customers Out'] ?? b['predicted_customers_out'])));
+    if (list.length > 50) list = list.take(50).toList();
+    return list;
+  }
+
+  Future<void> _runReport() async {
+    if (_busy) return;
+
+    setState(() {
+      _busy = true;
+      _error = null;
+      _note = null;
+      _rows = const [];
+    });
+
+    final myToken = ++_runToken;
+    final String? stateParam = (_stateParam.isEmpty) ? null : _stateParam;
+
+    try {
+      // Single correct call: sends days_out (not timeline), wind mph from UI
+      final data = await dawx.wx.nationalCsv(
+        region:   _regionParam,
+        maxZones: 50,
+        windMphMin: _windMph,
+        daysOut:  _days,
+        explicitHours: null,     // no custom-hours mode here
+        state: stateParam,
+      );
+
+      if (!mounted || myToken != _runToken) return;
+
+      var rows = _regionParam == 'national'
+          ? data
+          : _filterToRegionStates(data, _regionParam);
+      rows = _applyClientFilters(rows);
+
+      setState(() {
+        _rows = rows;
+        _note = 'region: $_regionParam • wind ≥ $_windMph mph • ${_days} day(s)';
+        _busy = false;
+      });
+    } catch (e) {
+      if (!mounted || myToken != _runToken) return;
+      setState(() {
+        _error = _friendlyError(e);
+        _busy = false;
+      });
+    }
+  }
+
+  Future<void> _exportCsv() async {
+    final uri = dawx.wx.nationalUri(
+      region: _regionParam,
+      maxZones: 50,
+      windMphMin: _windMph,
+      daysOut: _days,
+      explicitHours: null,
+      state: _stateParam.isEmpty ? null : _stateParam,
+      format: 'csv',
+    );
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _openDebug() async {
+    final uri = dawx.wx.nationalUri(
+      region: _regionParam,
+      maxZones: 50,
+      windMphMin: _windMph,
+      daysOut: _days,
+      explicitHours: null,
+      state: _stateParam.isEmpty ? null : _stateParam,
+      format: 'csv',
+    );
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final disabledHintStyle = TextStyle(color: Colors.white.withOpacity(0.35));
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        title: const Text('Divergent Weather Center'),
+        actions: [
+          IconButton(
+            tooltip: 'Open request in browser',
+            icon: const Icon(Icons.open_in_new),
+            onPressed: _openDebug,
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            Card(
+              color: const Color(0xFF121212),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  children: [
+                    // Region / State (mutually exclusive)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _LabeledBox(
+                            label: 'Region',
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: _regionPretty,
+                                isExpanded: true,
+                                items: _regions.keys
+                                    .map((k) => DropdownMenuItem(value: k, child: Text(k)))
+                                    .toList(),
+                                onChanged: _regionDisabled
+                                    ? null
+                                    : (v) => setState(() {
+                                  _regionPretty = v!;
+                                  if (_regionParam != 'national') {
+                                    _statePretty = 'None'; // keep mutual exclusion clean
+                                  }
+                                }),
+                                disabledHint: Text(_regionPretty, style: disabledHintStyle),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _LabeledBox(
+                            label: 'State (optional)',
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: _statePretty,
+                                isExpanded: true,
+                                items: _states.keys
+                                    .map((k) => DropdownMenuItem(value: k, child: Text(k)))
+                                    .toList(),
+                                onChanged: _stateDisabled
+                                    ? null
+                                    : (v) => setState(() {
+                                  _statePretty = v!;
+                                  if (_stateParam.isNotEmpty) {
+                                    _regionPretty = 'National';
+                                  }
+                                }),
+                                disabledHint: Text(_statePretty, style: disabledHintStyle),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Wind / Days
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _LabeledBox(
+                            label: 'Wind mph (min)',
+                            child: TextField(
+                              controller: _windCtl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(border: InputBorder.none, hintText: '35'),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _LabeledBox(
+                            label: 'Days out',
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<int>(
+                                value: _days,
+                                isExpanded: true,
+                                items: const [0, 1, 2, 3, 4, 5]
+                                    .map((d) => DropdownMenuItem(value: d, child: Text('$d')))
+                                    .toList(),
+                                onChanged: (v) => setState(() => _days = v ?? 0),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Run / CSV
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            icon: const Icon(Icons.play_arrow),
+                            onPressed: _busy
+                                ? null
+                                : () async {
+                              try {
+                                await _runReport();
+                              } catch (e) {
+                                if (!mounted) return;
+                                setState(() => _error = _friendlyError(e));
+                              }
+                            },
+                            style: FilledButton.styleFrom(
+                              backgroundColor: _busy ? const Color(0xFF2A2A2A) : kBrandOrange,
+                              foregroundColor: _busy ? Colors.white38 : Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            ),
+                            label: const Text('Run Report'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton.icon(
+                            icon: const Icon(Icons.file_download),
+                            onPressed: _exportCsv,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF1E1E1E),
+                              foregroundColor: kBrandOrange,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            ),
+                            label: const Text('Export CSV'),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: const [
+                          _InfoChip(label: 'Damaging wind = 40+ sustained or 50+ gusts'),
+                          _InfoChip(label: 'Top 50 rows • sorted by predicted customers out'),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            if (_busy)
+              const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator())),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Text(_error!, style: const TextStyle(color: Colors.redAccent)),
+              ),
+            if (_note != null && _error == null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                child: Text(_note!, style: const TextStyle(color: Colors.white70)),
+              ),
+            if (!_busy && _rows.isEmpty && _error == null)
+              const SizedBox(
+                height: 240,
+                child: Center(child: Text('No results yet', style: TextStyle(color: Colors.white54))),
+              ),
+            if (_rows.isNotEmpty) ..._rows.take(50).map((row) => _ResultTile(row: row)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final String label;
+  const _InfoChip({required this.label});
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      label: Text(label),
+      backgroundColor: const Color(0xFF1B1B1B),
+      side: BorderSide(color: Colors.white.withOpacity(0.08)),
+    );
+  }
+}
+
+class _LabeledBox extends StatelessWidget {
+  final String label;
+  final Widget child;
+  const _LabeledBox({required this.label, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A1A),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 11, color: Colors.white60)),
+          const SizedBox(height: 2),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _ResultTile extends StatelessWidget {
+  final Map<String, dynamic> row;
+  const _ResultTile({required this.row});
+
+  @override
+  Widget build(BuildContext context) {
+    final county = '${row['County'] ?? row['county'] ?? ''}';
+    final state  = '${row['State']  ?? row['state']  ?? ''}';
+    final customers = '${row['Predicted Customers Out'] ?? row['predicted_customers_out'] ?? ''}';
+    final threat = '${row['Threat Level'] ?? row['threat_level'] ?? ''}';
+    final prob   = '${row['Wind Outage Probability %'] ?? row['probability'] ?? row['prob_pct'] ?? ''}';
+    final wind   = '${row['Peak Wind mph'] ?? row['Wind mph'] ?? row['Gust mph'] ?? ''}';
+
+    return Card(
+      color: const Color(0xFF0D0D0D),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: ListTile(
+        title: Text('$county, $state'),
+        subtitle: Text('Predicted out: $customers • Threat: $threat • Prob: $prob • Wind: $wind'),
+        trailing: const Icon(Icons.chevron_right),
+      ),
+    );
+  }
+}
+
+
+

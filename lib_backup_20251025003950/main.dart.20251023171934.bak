@@ -1,0 +1,40 @@
+import 'package:flutter/material.dart';
+import 'screens/weather_center_restored.dart';
+import 'package:divergent_alliance/screens/castle_landing.dart';
+import 'screens/weather_center_restored.dart';
+
+void main() {
+  runApp(const DivergentApp());
+}
+
+class DivergentApp extends StatelessWidget {
+  const DivergentApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Divergent Alliance',
+      home: const CastleLanding(),
+      routes: {
+        '/shop': (context) => const ShopUnderConstruction(),
+        '/weather': (context) => WeatherCenter(),
+      },
+    );
+  }
+}
+
+/// Fallback local widget so /shop always works.
+class ShopUnderConstruction extends StatelessWidget {
+  const ShopUnderConstruction({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Shop')),
+      body: const Center(
+        child:
+            Text('Shop is under construction', style: TextStyle(fontSize: 18)),
+      ),
+    );
+  }
+}

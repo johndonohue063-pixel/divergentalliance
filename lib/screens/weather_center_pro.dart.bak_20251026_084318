@@ -1,0 +1,473 @@
+import 'dart:async';
+import '../services/wx_api.dart';
+import 'package:geolocator/geolocator.dart';
+import "dart:math";
+import "package:flutter/material.dart";
+import "../services/wx_api.dart" as wx;
+
+/// Wind metric selector
+enum WxWindMetric { gust, sustained }
+
+/// Regions your API understands (use state filter only when a true state is chosen)
+const List<String> kRegions = <String>[
+"Nationwide",
+"Texas",
+  "Florida",
+  "California",
+"Southeast",
+"Midwest",
+"Northeast",
+"Plains",
+"Mountain",
+"Pacific NW",
+];
+
+class WeatherCenterPro extends StatefulWidget {
+const WeatherCenterPro({super.key});
+@override
+State<WeatherCenterPro> createState() => _WeatherCenterProState();
+}
+
+class _WeatherCenterProState extends State<WeatherCenterPro> {
+// Filters
+String _region = "Nationwide";
+WxWindMetric _metric = WxWindMetric.gust;
+double _gust = 45;       // mph threshold sent to API as windMph
+double _sustained = 28;  // mph threshold alternative
+int _hours = 72;         // forecast window
+
+// Results
+final List<_ReportRow> _results = [];
+
+@override
+void initState() {
+super.initState();
+// wx.WxApi.discover(); // points base URL to emulator-safe host if not set
+}
+
+@override
+Widget build(BuildContext context) {
+// Clamp device text scale so pills/chips donâ€™t balloon (new API)
+final media = MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling);
+return MediaQuery(
+data: media,
+child: Scaffold(
+backgroundColor: const Color(0xFF0E0F12),
+appBar: AppBar(
+backgroundColor: const Color(0xFF0E0F12),
+elevation: 0,
+title: const Text("Weather Center Pro", style: TextStyle(fontWeight: FontWeight.w700)),
+),
+body: Padding(
+padding: const EdgeInsets.all(16),
+child: Column(
+children: [
+_filters(),
+const SizedBox(height: 12),
+_actions(),
+const SizedBox(height: 12),
+Expanded(child: _resultsTable()),
+],
+),
+),
+),
+);
+}
+
+// ---------- FILTERS UI ----------
+Widget _filters() {
+return _glassCard(
+child: Column(
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+const Text("Scope & Region",
+style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
+const SizedBox(height: 8),
+Wrap(
+spacing: 10,
+runSpacing: 8,
+children: [
+_pillDropdown<String>(
+label: "Region",
+value: _region,
+items: kRegions,
+onChanged: (v) => setState(() => _region = v ?? "Nationwide"),
+),
+_pillChoice(
+label: "Metric",
+chips: const ["Gust", "Sustained"],
+selectedIndex: _metric == WxWindMetric.gust ? 0 : 1,
+onSelected: (i) => setState(() =>
+_metric = i == 0 ? WxWindMetric.gust : WxWindMetric.sustained),
+),
+],
+),
+const SizedBox(height: 8),
+Row(
+children: [
+Expanded(
+child: _sliderTile(
+title: "Gust threshold",
+value: _gust,
+unit: "mph",
+min: 25,
+max: 90,
+onChanged: (v) => setState(() => _gust = v),
+),
+),
+const SizedBox(width: 16),
+Expanded(
+child: _sliderTile(
+title: "Sustained threshold",
+value: _sustained,
+unit: "mph",
+min: 15,
+max: 60,
+onChanged: (v) => setState(() => _sustained = v),
+),
+),
+],
+),
+Row(
+children: [
+Expanded(
+child: _sliderTile(
+title: "Forecast window",
+value: _hours.toDouble(),
+unit: "hr",
+min: 12,
+max: 120,
+divisions: 18,
+onChanged: (v) => setState(() => _hours = v.round()),
+),
+),
+const SizedBox(width: 16),
+_legend(),
+],
+),
+],
+),
+);
+}
+
+Widget _legend() {
+Widget swatch(Color c, String t) => Row(children: [
+Container(width: 14, height: 14, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(3))),
+const SizedBox(width: 6),
+Text(t, style: const TextStyle(color: Colors.white60))
+]);
+return _glassCard(
+child: Padding(
+padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+child: Column(
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+swatch(_sevColor(3), "Level 3"),
+const SizedBox(height: 6),
+swatch(_sevColor(2), "Level 2"),
+const SizedBox(height: 6),
+swatch(_sevColor(1), "Level 1"),
+],
+),
+),
+);
+}
+
+// ---------- ACTIONS ----------
+Widget _actions() {
+return Row(
+children: [
+ElevatedButton.icon(
+onPressed: _runReport,
+icon: const Icon(Icons.play_arrow),
+label: const Text("Run report"),
+),
+const SizedBox(width: 12),
+OutlinedButton.icon(
+onPressed: () => setState(() => _results.clear()),
+icon: const Icon(Icons.delete_sweep),
+label: const Text("Clear"),
+),
+],
+);
+}
+
+// ---------- RESULTS ----------
+Widget _resultsTable() {
+if (_results.isEmpty) {
+return _glassCard(
+child: Padding(
+padding: const EdgeInsets.all(16),
+child: Row(
+children: const [
+Icon(Icons.info_outline, color: Color(0xFFFF7A00)),
+SizedBox(width: 10),
+Expanded(
+child: Text(
+"Run a report to populate county forecasts, severity, and crew guidance.",
+style: TextStyle(color: Colors.white70),
+),
+),
+],
+),
+),
+);
+}
+
+return _glassCard(
+child: ListView.separated(
+itemCount: _results.length,
+separatorBuilder: (_, __) => Divider(color: Colors.white.withOpacity(0.08), height: 1),
+itemBuilder: (context, i) {
+final r = _results[i];
+return ListTile(
+dense: true,
+title: Text(r.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+subtitle: Text("Gust ${r.gust} mph, Sust ${r.sustained} mph â€¢ Crews ${r.crews}",
+style: const TextStyle(color: Colors.white70)),
+trailing: Container(
+padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+decoration: BoxDecoration(
+color: _sevColor(r.severity).withOpacity(0.2),
+border: Border.all(color: _sevColor(r.severity), width: 1),
+borderRadius: BorderRadius.circular(8),
+),
+child: Text("L${r.severity}", style: TextStyle(color: _sevColor(r.severity), fontWeight: FontWeight.w700)),
+),
+);
+},
+),
+);
+}
+
+// ---------- LIVE REPORT (WxApi.nationalSmart) ----------
+Future<void> _runReport() async {
+setState(() => _results.clear());
+
+final int windMph = (_metric == WxWindMetric.gust ? _gust : _sustained).round();
+const int threshold = 1; // minimal non-zero until a slider is added
+const int maxZones = 50;
+
+// If region is a real US state, pass its code; otherwise null.
+String? state;
+switch (_region) {
+  case "Texas": state = "TX"; break;
+  case "Florida": state = "FL"; break;
+  case "California": state = "CA"; break;
+  default: state = null;
+}
+
+try {
+// final rows = await wx.WxApi.nationalSmart(
+region: _region,
+maxZones: maxZones,
+threshold: threshold,
+horizonHours: _hours,
+windMph: windMph,
+state: state,
+);
+
+final out = <_ReportRow>[];
+for (final m in rows) {
+final String county = _str(m, ["county","County","name","Name"]) ?? "Unknown";
+final String st     = _str(m, ["state","State","st","ST"]) ?? "";
+final String name   = st.isEmpty ? county : "$county, $st";
+
+final int pop       = _int(m, ["population","Population","pop","POP"]) ?? 250000;
+final int gust      = _int(m, ["gust","GUST","wind_gust","Wind Gust","MaxGust"]) ?? windMph;
+final int sustained = _int(m, ["sustained","SUSTAINED","wind","wind_speed","AvgWind"]) ?? max(10, (gust * 0.6).round());
+
+out.add(_ReportRow(
+id: _str(m, ["geoid","GEOID","id","ID"]) ?? name,
+name: name,
+population: pop,
+gust: gust,
+sustained: sustained,
+severity: _severity(gust: gust, sustained: sustained),
+crews: _crewFor(gust: gust, sustained: sustained, pop: pop),
+));
+}
+
+setState(() => _results.addAll(out));
+} catch (e) {
+if (!mounted) return;
+ScaffoldMessenger.of(context).showSnackBar(
+SnackBar(content: Text("Weather Center error: $e")),
+);
+}
+}
+
+// ---------- Helpers ----------
+String? _str(Map<String, dynamic> m, List<String> keys) {
+for (final k in keys) {
+if (m.containsKey(k) && m[k] != null) return m[k].toString().trim();
+}
+return null;
+}
+
+int? _int(Map<String, dynamic> m, List<String> keys) {
+for (final k in keys) {
+if (m.containsKey(k) && m[k] != null) {
+final v = m[k];
+if (v is num) return v.round();
+if (v is String) {
+final cleaned = v.replaceAll(RegExp(r"[^0-9\.\-]"), "");
+final n = num.tryParse(cleaned);
+if (n != null) return n.round();
+}
+}
+}
+return null;
+}
+
+int _severity({required int gust, required int sustained}) {
+if (gust >= 60 || sustained >= 40) return 3;
+if (gust >= 45 || sustained >= 30) return 2;
+return 1;
+}
+
+int _crewFor({required int gust, required int sustained, required int pop}) {
+final double base = (gust * 0.6 + sustained * 0.4);
+final double scale = (pop / 100000.0);
+return max(1, (base / 10.0 * max(1, scale)).round());
+}
+
+// ---------- UI helpers ----------
+Widget _glassCard({required Widget child}) {
+return Container(
+decoration: BoxDecoration(
+color: Colors.white.withOpacity(0.06),
+borderRadius: BorderRadius.circular(16),
+border: Border.all(color: Colors.white.withOpacity(0.12), width: 1),
+boxShadow: const [BoxShadow(blurRadius: 12, spreadRadius: -4, color: Colors.black54)],
+),
+child: ClipRRect(
+borderRadius: BorderRadius.circular(16),
+child: child,
+),
+);
+}
+
+Widget _pillDropdown<T>({
+required String label,
+required T? value,
+required List<T> items,
+required void Function(T?) onChanged,
+}) {
+return _glassCard(
+child: Padding(
+padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+child: DropdownButtonHideUnderline(
+child: DropdownButton<T>(
+value: value,
+items: items.map((e) => DropdownMenuItem<T>(value: e, child: Text("$e"))).toList(),
+onChanged: onChanged,
+iconEnabledColor: Colors.white,
+dropdownColor: const Color(0xFF1A1B20),
+style: const TextStyle(color: Colors.white),
+),
+),
+),
+);
+}
+
+Widget _pillChoice({
+required String label,
+required List<String> chips,
+required int selectedIndex,
+required void Function(int) onSelected,
+}) {
+return _glassCard(
+child: Padding(
+padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+child: Wrap(
+spacing: 8,
+children: List.generate(chips.length, (i) {
+final sel = i == selectedIndex;
+return ChoiceChip(
+selected: sel,
+onSelected: (_) => onSelected(i),
+label: Text(chips[i]),
+labelStyle: TextStyle(color: sel ? Colors.black : Colors.white),
+selectedColor: const Color(0xFFFF7A00),
+backgroundColor: const Color(0xFF1F2026),
+side: BorderSide(color: sel ? const Color(0xFFFF7A00) : Colors.white.withOpacity(0.18)),
+);
+}),
+),
+),
+);
+}
+
+Widget _sliderTile({
+required String title,
+required double value,
+required String unit,
+required double min,
+required double max,
+int? divisions,
+required ValueChanged<double> onChanged,
+}) {
+return _glassCard(
+child: Padding(
+padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+child: Column(
+crossAxisAlignment: CrossAxisAlignment.start,
+children: [
+Text("$title: ${value.round()} $unit",
+style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+Slider(
+value: value,
+min: min,
+max: max,
+divisions: divisions,
+label: "${value.round()}",
+onChanged: onChanged,
+),
+],
+),
+),
+);
+}
+
+Color _sevColor(int level) {
+switch (level) {
+case 3: return const Color(0xFFFF4D4D);
+case 2: return const Color(0xFFFFB84D);
+default: return const Color(0xFF5AC18E);
+}
+}
+}
+
+class _ReportRow {
+_ReportRow({
+required this.id,
+required this.name,
+required this.population,
+required this.gust,
+required this.sustained,
+required this.severity,
+required this.crews,
+});
+
+final String id;
+final String name;
+final int population;
+int gust;
+int sustained;
+int severity; // 1..3
+int crews;
+}
+
+// LIVE_NWS_BLOCK
+class LiveNwsController {
+  final WxApi api = WxApi();
+  Future<LiveSummary> fetch() async {
+    final perm = await Geolocator.requestPermission();
+    if(perm == LocationPermission.denied || perm == LocationPermission.deniedForever){
+      throw Exception('Location permission denied');
+    }
+    final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+    return api.liveSummary(lat: pos.latitude, lon: pos.longitude);
+  }
+}

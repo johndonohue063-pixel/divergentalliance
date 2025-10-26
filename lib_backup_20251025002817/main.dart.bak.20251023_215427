@@ -1,0 +1,37 @@
+import 'package:flutter/material.dart';
+import 'screens/landing_screen.dart';
+
+void main() => runApp(const MyApp());
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  static Widget _routeGuard(Widget child, String name) {
+    // Replace Placeholder with actual screens when ready
+    return child;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        primaryColor: const Color(0xFFFF6A00),
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFFFF6A00),
+          onPrimary: Colors.black,
+          surface: Colors.black,
+          onSurface: Colors.white,
+        ),
+        useMaterial3: true,
+      ),
+      home: const LandingScreen(),
+      routes: <String, WidgetBuilder>{
+        '/weather': (context) =>
+            _routeGuard(const Placeholder(), 'Weather Center'),
+        '/shop': (context) => _routeGuard(const Placeholder(), 'Shop'),
+      },
+    );
+  }
+}

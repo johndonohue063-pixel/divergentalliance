@@ -1,0 +1,38 @@
+import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+const String kApiBase = String.fromEnvironment(
+  'WX_API_BASE',
+  defaultValue: 'http://127.0.0.1:8050', // use 10.0.2.2 ONLY on Android emulator
+);
+
+Future<void> _openStormUi() async {
+  final uri = Uri.parse('$kApiBase/app/');
+  await launchUrl(
+    uri,
+    webOnlyWindowName: '_self',           // same tab on web
+    mode: LaunchMode.externalApplication, // browser on desktop/mobile
+  );
+}
+
+void main() => runApp(const _App());
+
+class _App extends StatelessWidget {
+  const _App({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Storm Control',
+      home: Scaffold(
+        appBar: AppBar(title: const Text('Storm Control')),
+        body: Center(
+          child: ElevatedButton.icon(
+            onPressed: _openStormUi,
+            icon: const Icon(Icons.bolt),
+            label: const Text('Run Storm Prediction'),
+          ),
+        ),
+      ),
+    );
+  }
+}

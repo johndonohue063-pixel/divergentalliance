@@ -1,0 +1,41 @@
+﻿import 'package:flutter/material.dart';
+import 'weather_center.dart';
+  routes: {
+    '/shop':    (context) => ShopUnderConstruction(),
+    '/weather': (context) => const WeatherCenter(),
+  },
+import 'pages/shop_under_construction.dart';
+import 'weather_center.dart';
+import 'package:divergent_alliance/screens/castle_landing.dart';
+import 'weather_center.dart';
+import 'package:divergent_alliance/screens/weather_center.dart';
+
+import 'weather_center.dart';
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const DivergentApp());
+}
+
+class DivergentApp extends StatelessWidget {
+  const DivergentApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Divergent Alliance',
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Color(0xFFF38B2B),
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+      ),
+      debugShowCheckedModeBanner: false,
+
+      },
+    );
+  }
+}
+

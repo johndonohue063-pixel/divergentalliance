@@ -1,0 +1,273 @@
+﻿import "package:flutter/material.dart";
+import "../widgets/wc_filters.dart";
+
+/// Weather Center with inline filters (no modal). Pressing Run Report refreshes
+/// results in place. Color-coded severity on left border.
+class WeatherCenterPro extends StatefulWidget {
+  const WeatherCenterPro({super.key});
+  @override
+  State<WeatherCenterPro> createState() => _WeatherCenterProState();
+}
+
+class _WeatherCenterProState extends State<WeatherCenterPro> {
+  // Filter state
+  bool _gust = true;
+  bool _sustained = false;
+  int _minSev = 1;
+  double _window = 36;
+
+  // Results
+  final List<_ReportRow> _rows = [];
+  bool _loading = false;  
+  // Suggested Crews calculator â€” wind-driven with severity and window boosts.
+  // Keeps everything else intact.
+  int _crewFor(int gust, int sustained, int sev, double windowHours) {
+    final wind = gust > sustained ? gust : sustained;
+    int base;
+    switch (sev) {
+      case 1: base = 1; break;
+      case 2: base = 2; break;
+      case 3: base = 3; break;
+      case 4: base = 5; break;
+      default: base = 8; // sev 5+
+    }
+    // Wind boosts
+    if (wind >= 45) {
+      base += 2;
+    } else if (wind >= 35) {
+      base += 1;
+    }
+    // Longer impact window -> a little more staffing
+    if (windowHours >= 60) {
+      base += 2;
+    } else if (windowHours >= 48) {
+      base += 1;
+    }
+    if (base < 1) base = 1;
+    return base;
+  }
+
+  Future<void> _runReport() async {
+    setState(() => _loading = true);
+    await Future.delayed(const Duration(milliseconds: 400)); // stub
+    final demo = <_ReportRow>[
+      _ReportRow("miami-dade", "Miami-Dade, FL", 30, 21, 1, _crewFor(30, 21, 1, _window)),
+      _ReportRow("cook-il", "Cook, IL", 27, 17, 2, _crewFor(27, 17, 2, _window)),
+      _ReportRow("nyc-ny", "New York, NY", 24, 14, 3, _crewFor(24, 14, 3, _window)),
+    ].where((r) => r.severity >= _minSev).toList();
+
+    setState(() {
+      _rows..clear()..addAll(demo);
+      _loading = false;
+    });
+  }
+
+  void _exportCsv() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Export stub: wire to CSV endpoint")),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const bg = kBg;
+    const card = kCard;
+    const border = kBorder;
+
+    return Scaffold(
+      backgroundColor: bg,
+      appBar: AppBar(
+        backgroundColor: bg,
+        elevation: 0,
+        foregroundColor: kText,
+        title: const Text("Weather Center"),
+        iconTheme: const IconThemeData(color: kText),
+        actions: [
+          TextButton(
+            onPressed: _exportCsv,
+            child: const Text("Export CSV", style: TextStyle(color: kBrand, fontWeight: FontWeight.w700)),
+          ),
+          const SizedBox(width: 6),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: kBrand,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+              ),
+              onPressed: _loading ? null : _runReport,
+              child: Text(_loading ? "Runningâ€¦" : "Run Report", style: const TextStyle(fontWeight: FontWeight.w800)),
+            ),
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // INLINE FILTERS
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: card,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: border),
+              ),
+              child: WcFilters(
+                gustSelected: _gust,
+                sustainedSelected: _sustained,
+                minSeverity: _minSev,
+                windowHours: _window,
+                onGustChanged: (v) => setState(() => _gust = v),
+                onSustainedChanged: (v) => setState(() => _sustained = v),
+                onMinSeverityChanged: (v) => setState(() => _minSev = v),
+                onWindowChanged: (v) => setState(() => _window = v),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // KPI tiles
+            Row(
+              children: [
+                Expanded(child: _kpiCard("Expected Gust", "0 mph")),
+                const SizedBox(width: 12),
+                Expanded(child: _kpiCard("Expected Sust.", "0 mph")),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: _kpiCard("Severity", "Level 0")),
+                const SizedBox(width: 12),
+                Expanded(child: _kpiCard("Crew Rec", "0 crews")),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // RESULTS
+            Expanded(
+              child: _rows.isEmpty
+                  ? _emptyCard()
+                  : ListView.separated(
+                      itemCount: _rows.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, i) => _resultTile(_rows[i]),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _kpiCard(String title, String value) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: kCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: kBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(color: kMuted)),
+          const SizedBox(height: 6),
+          
+          Text(value, style: const TextStyle(fontSize: 18, color: kText, fontWeight: FontWeight.w700)),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: kCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: kBorder),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.info_outline, color: kBrand),
+          SizedBox(width: 10),
+          Expanded(child: Text("Run a report to populate county forecasts, severity, and crew guidance.", style: TextStyle(color: Colors.white70))),
+        ],
+      ),
+    );
+  }
+
+  Widget _resultTile(_ReportRow row) {
+    final left = switch (row.severity) {
+      1 => const Color(0xFF16A34A),
+      2 => const Color(0xFFF59E0B),
+      3 => const Color(0xFFF97316),
+      4 => const Color(0xFFEF4444),
+      _ => const Color(0xFFB91C1C),
+    };
+
+    return Container(
+      decoration: BoxDecoration(
+        color: kCard,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kBorder, width: 1),
+      ),
+      child: Row(
+        children: [
+          Container(width: 6, height: 64, decoration: BoxDecoration(color: left, borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), bottomLeft: Radius.circular(12)))),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(row.name, style: const TextStyle(color: kText, fontWeight: FontWeight.w600)),
+                SizedBox(height: 2),
+                Text("Gust:  mph Â· Sustained:  mph", style: const TextStyle(color: kMuted, fontSize: 12)),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text("Sev ${row.severity}", style: TextStyle(color: kBrand, fontWeight: FontWeight.bold)),
+                Text(' crews', style: const TextStyle(color: Colors.white70)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReportRow {
+  final String id;
+  final String name;
+  final int gust;
+  final int sustained;
+  final int severity;
+  final int crewRec;
+// COMPILE-SHIM: out-of-scope UI commented   _ReportRow(this.id, this.name, this.gust, this.sustained, this.severity, this.crewRec);
+}
+
+
+// CREW-SLOT
+int _crewFor(num gust, num sustained, int severity, int windowHours) {
+  // Simple deterministic calculator, adjust as you like
+  final double g = (gust is num) ? gust.toDouble() : 0.0;
+  final double s = (sustained is num) ? sustained.toDouble() : 0.0;
+  final int sev = severity;
+  final int base = (g.round() + (s * 0.6).round()) + (sev * 3);
+  final int scale = (windowHours >= 24) ? 1 : 1;
+  final int crews = (((base * scale) ~/ 5) < 0 ? 0 : ((base * scale) ~/ 5));
+  return crews;
+}
+
+
+

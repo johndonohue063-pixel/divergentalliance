@@ -1,0 +1,32 @@
+﻿import 'package:flutter/material.dart';
+import 'package:divergent_alliance/lib/ui/screens/home_screen.dart';
+import 'ui/screens/shop_screen.dart';
+import 'ui/screens/weather_center_screen.dart';
+import 'package:divergent_alliance/ui/screens/home_screen.dart';
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const DivergentApp());
+}
+
+class DivergentApp extends StatelessWidget {
+  const DivergentApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final base = ThemeData.dark(useMaterial3: true);
+    return MaterialApp(
+  title: 'Divergent Alliance',
+  debugShowCheckedModeBanner: false,
+  home: (),
+);
+  }
+}
+
+
+
+
+
+
+
+
+

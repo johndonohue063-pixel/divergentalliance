@@ -1,0 +1,603 @@
+﻿import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'services/wx_client.dart';
+
+import 'dart:math' as math;
+const kBrandOrange = Color(0xFFF38B2B);
+
+// ---- Color rules for threat -----------------------------------------------
+Color threatColorFromProb(num? p) {
+  final pp = (p ?? 0).toDouble();
+  if (pp >= 45) return const Color(0xFFB71C1C); // red
+  if (pp >= 30) return const Color(0xFFE65100); // orange
+  if (pp >= 20) return const Color(0xFFF9A825); // yellow
+  return const Color(0xFF2E7D32);               // green
+}
+String threatBand(num? p) {
+  final pp = (p ?? 0).toDouble();
+  if (pp >= 45) return 'Level 3';
+  if (pp >= 30) return 'Level 2';
+  if (pp >= 20) return 'Level 1';
+  return 'Low';
+}
+
+class WeatherCenter extends StatefulWidget {
+  const WeatherCenter({super.key});
+  @override
+  State<WeatherCenter> createState() => _WeatherCenterState();
+}
+
+class _WeatherCenterState extends State<WeatherCenter> {
+  
+  
+  // Threat color legend (red / orange / yellow / green)
+  Widget _colorLegendRow() {
+    Widget dot(Color c) => Container(width: 10, height: 10, decoration: BoxDecoration(color: c, shape: BoxShape.circle));
+    Widget item(Color c, String t) => Row(children: [dot(c), const SizedBox(width: 6), Text(t)]);
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 4),
+      child: Wrap(spacing: 16, runSpacing: -8, children: [
+        item(const Color(0xFFB71C1C), 'High'),
+        item(const Color(0xFFE65100), 'Elevated'),
+        item(const Color(0xFFF9A825), 'Guarded'),
+        item(const Color(0xFF2E7D32), 'Low'),
+      ]),
+    );
+  }
+// Compact state risk badges (Top-3) for Filter Summary (safe: no-op in State Mode).
+  Widget _stateRiskBadgesBar() {
+    final stText = _stateCtl.text.trim();
+    final inStateMode = stText.isNotEmpty && stText.length == 2;
+    if (_rows.isEmpty || inStateMode) return const SizedBox.shrink();
+
+    num? _num(Map r, List<String> keys) {
+      for (final k in keys) {
+        final v = r[k];
+        if (v == null) continue;
+        final s = v.toString().replaceAll('%','').replaceAll(',','').trim();
+        final n = num.tryParse(s);
+        if (n != null) return n;
+      }
+      return null;
+    }
+
+    final map = <String, Map<String,num>>{};
+    for (final r in _rows) {
+      final st = _pick(r, ['state','State'], fallback: '—').toUpperCase();
+      final pg = _num(r, ['Wind Outage Probability % (gust)','wind_outage_probability_pct_gust']);
+      final pn = _num(r, ['Wind Outage Probability %','wind_outage_probability']);
+      final p  = pg ?? pn ?? 0;
+      final mg = _num(r, ['Max Gust mph','max_gust_mph']) ?? 0;
+      final c5 = _num(r, ['Max Consecutive Gust ≥ 50 Hours','max_consec_gust50_hours']) ?? 0;
+      final h5 = _num(r, ['Hours Gust ≥ 50','hours_gust_ge_50']) ?? 0;
+      final cust = _num(r, ['Predicted Customers Out','customers','customers_out']) ?? 0;
+
+      final e = map.putIfAbsent(st, () => {'maxProb':0,'maxGust':0,'maxRun':0,'sumH50':0,'cust':0,'score':0});
+      e['maxProb'] = math.max(e['maxProb']!, p);
+      e['maxGust'] = math.max(e['maxGust']!, mg);
+      e['maxRun']  = math.max(e['maxRun']!,  c5);
+      e['sumH50']  = (e['sumH50'] ?? 0) + h5;
+      e['cust']    = (e['cust']   ?? 0) + cust;
+
+      final gp = e['maxProb'] ?? 0;
+      final gb = (e['maxGust'] ?? 0) * 1.2 + (e['maxRun'] ?? 0) * 5 + (e['sumH50'] ?? 0) * 0.6;
+      e['score'] = gp * 1000 + gb + (e['cust'] ?? 0) / 150.0;
+    }
+
+    final items = map.entries.toList();
+    items.sort((a,b) => (b.value['score'] ?? 0).compareTo(a.value['score'] ?? 0));
+    final top = items.take(3).toList();
+    if (top.isEmpty) return const SizedBox.shrink();
+
+    Color band(num p) {
+      if (p >= 45) return const Color(0xFFB71C1C);
+      if (p >= 30) return const Color(0xFFE65100);
+      if (p >= 20) return const Color(0xFFF9A825);
+      return const Color(0xFF2E7D32);
+    }
+
+    final chips = <Widget>[];
+    for (final t in top) {
+      final st = t.key;
+      final pp = (t.value['maxProb'] ?? 0).round();
+      final dot = band(pp);
+      chips.add(
+        Chip(
+          avatar: Container(width: 10, height: 10, decoration: BoxDecoration(color: dot, shape: BoxShape.circle)),
+          label: Text(" %"),
+          backgroundColor: const Color(0xFF1B1B1B),
+          side: BorderSide(color: Colors.white.withOpacity(0.08)),
+          labelStyle: const TextStyle(fontSize: 12, color: Colors.white70),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        )
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Wrap(spacing: 8, runSpacing: -8, children: chips),
+    );
+  }
+// Filters
+  String _region = 'US';
+  int _maxZones = 20;
+  int _days = 7;
+  final TextEditingController _windCtl = TextEditingController(text: '45');
+  final TextEditingController _stateCtl = TextEditingController(text: '');
+
+  // Data
+  bool _busy = false;
+  String? _error;
+  List<Map<String, dynamic>> _rows = const [];
+
+  // -------- helpers to access CSV keys --------------------------------------
+  String _pick(Map row, List<String> keys, {String fallback = ''}) {
+    for (final k in keys) {
+      final v = row[k];
+      if (v == null) continue;
+      final s = v.toString().trim();
+      if (s.isNotEmpty) return s;
+    }
+    return fallback;
+  }
+  num? _pickNum(Map row, List<String> keys) {
+    final s = _pick(row, keys, fallback: '');
+    if (s.isEmpty) return null;
+    return num.tryParse(s.replaceAll(',', ''));
+  }
+  num? _prob(Map r) =>
+      _pickNum(r, ['wind_outage_probability','wind_outage_probability_percent','prob','Wind Outage Probability %']);
+  num? _cust(Map r) =>
+      _pickNum(r, ['predicted_customers_out','customers_out','customers','Predicted Customers Out']);
+
+  @override
+  void initState() {
+    super.initState();
+    WxClient.discover(); // change if your port differs
+    // WxClient.discover(overrideBase: 'http://10.0.2.2:5000');
+  }
+
+  @override
+  void dispose() {
+    _windCtl.dispose();
+    _stateCtl.dispose();
+    super.dispose();
+  }
+
+  // -------- fetch ------------------------------------------------------------
+  Future<void> _runReport() async {
+    setState(() { _busy = true; _error = null; _rows = const []; });
+    try {
+      final wind = int.tryParse(_windCtl.text.trim()) ?? 35;
+      final state = _stateCtl.text.trim().toUpperCase();
+      final stateParam = state.length == 2 ? state : null;
+
+      final data = await WxClient.nationalCsv(
+        region: _region,
+        maxZones: _maxZones,
+        windMphMin: wind,
+        daysOut: _days,
+        state: stateParam, // pass through
+      );
+
+      // Client-side state filter as a safety net
+      final filtered = stateParam == null
+          ? data
+          : data.where((r) => _pick(r, ['state','State']).toUpperCase() == stateParam).toList();
+
+      // Sort per view:
+      if (stateParam != null) {
+        // STATE MODE: counties sorted by probability desc then customers
+        filtered.sort((a,b) {
+          final ap = _prob(a) ?? -1, bp = _prob(b) ?? -1;
+          if (bp.compareTo(ap) != 0) return bp.compareTo(ap);
+          final ac = _cust(a) ?? 0, bc = _cust(b) ?? 0;
+          return bc.compareTo(ac);
+        });
+      } else {
+        // REGION MODE: keep order for now, we aggregate by state below
+      }
+
+      if (!mounted) return;
+      setState(() => _rows = filtered);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
+    } finally {
+      if (!mounted) return;
+      setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openCsv() async {
+    final wind = int.tryParse(_windCtl.text.trim()) ?? 35;
+    final state = _stateCtl.text.trim().toUpperCase();
+    final stateParam = state.length == 2 ? state : null;
+    final uri = WxClient.nationalUri(
+      region: _region, maxZones: _maxZones, windMphMin: wind, daysOut: _days,
+      state: stateParam, format: 'csv',
+    );
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _openJson() async {
+    final wind = int.tryParse(_windCtl.text.trim()) ?? 35;
+    final state = _stateCtl.text.trim().toUpperCase();
+    final stateParam = state.length == 2 ? state : null;
+    final uri = WxClient.nationalUri(
+      region: _region, maxZones: _maxZones, windMphMin: wind, daysOut: _days,
+      state: stateParam, format: 'json',
+    );
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  // -------- grouping/aggregation for REGION MODE ----------------------------
+  // Aggregate counties to states: compute max probability, total customers, and a score.
+  List<_StateAgg> _aggregateByState(List<Map<String,dynamic>> rows) {
+    final map = <String, _StateAgg>{};
+    for (final r in rows) {
+      final st = _pick(r, ['state','State'], fallback: '—').toUpperCase();
+      final pr = _prob(r) ?? 0;
+      final cu = _cust(r) ?? 0;
+      final county = _pick(r, ['county','county_name','County'], fallback: '—');
+
+      final entry = map.putIfAbsent(st, () => _StateAgg(state: st));
+      entry.maxProb = entry.maxProb == null ? pr : (pr > entry.maxProb! ? pr : entry.maxProb);
+      entry.totalCustomers += cu;
+      entry.counties.add(r);
+
+      // Score: weight probability more than customers (tunable)
+      entry.score = (entry.maxProb ?? 0) * 1000 + entry.totalCustomers / 100.0;
+    }
+
+    final list = map.values.toList();
+    list.sort((a,b) {
+      // sort by score desc, then by maxProb desc
+      final sc = b.score.compareTo(a.score);
+      if (sc != 0) return sc;
+      final ap = a.maxProb ?? 0, bp = b.maxProb ?? 0;
+      return bp.compareTo(ap);
+    });
+    // Sort each state's counties: prob desc then customers desc
+    for (final s in list) {
+      s.counties.sort((a,b) {
+        final ap = _prob(a) ?? -1, bp = _prob(b) ?? -1;
+        if (bp.compareTo(ap) != 0) return bp.compareTo(ap);
+        final ac = _cust(a) ?? 0, bc = _cust(b) ?? 0;
+        return bc.compareTo(ac);
+      });
+    }
+    return list;
+  }
+
+  // -------- UI ---------------------------------------------------------------
+  @override
+  Widget build(BuildContext context) {
+    final disabled = _busy;
+    final windText  = _windCtl.text.trim().isEmpty ? '—' : _windCtl.text.trim();
+    final stateText = _stateCtl.text.trim().isEmpty ? 'All' : _stateCtl.text.trim().toUpperCase();
+    final inStateMode = stateText != 'All' && stateText.length == 2;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        title: const Text('Divergent Weather Center'),
+        actions: [
+          IconButton(
+            tooltip: 'Open JSON',
+            onPressed: disabled ? null : _openJson,
+            icon: const Icon(Icons.open_in_new),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            // Filter summary
+            Card(child: Column(children: [ ]), color: const Color(0xFF101010), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Wrap(
+                  spacing: 8, runSpacing: -8, children: [
+                  _chip('Region: $_region'),
+                  _chip('Max zones: $_maxZones'),
+                  _chip('Wind ≥: $windText mph'),
+                  _chip('Days out: $_days'),
+                  _chip('State: $stateText'),
+                ],
+                ),
+              )),
+            _stateRiskBadgesBar(),
+            _colorLegendRow(),
+
+            // Filters
+            Card(
+              color: const Color(0xFF121212),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: _region, isExpanded: true,
+                              items: const ['US','EAST','CENTRAL','WEST']
+                                  .map((k) => DropdownMenuItem(value: k, child: Text(k))).toList(),
+                              onChanged: disabled ? null : (v) => setState(() => _region = v ?? 'US'),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<int>(
+                              value: _maxZones, isExpanded: true,
+                              items: const [5,10,15,20,30,40]
+                                  .map((d) => DropdownMenuItem(value: d, child: Text('$d'))).toList(),
+                              onChanged: disabled ? null : (v) => setState(() => _maxZones = v ?? 20),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _windCtl, keyboardType: TextInputType.number,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: const InputDecoration(
+                              border: InputBorder.none, hintText: '35',
+                              hintStyle: TextStyle(color: Colors.white54),
+                              labelText: 'Wind mph min', labelStyle: TextStyle(color: Colors.white60),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<int>(
+                              value: _days, isExpanded: true,
+                              items: const [0,1,2,3,4,5,6,7,10,14]
+                                  .map((d) => DropdownMenuItem(value: d, child: Text('$d'))).toList(),
+                              onChanged: disabled ? null : (v) => setState(() => _days = v ?? 0),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _stateCtl,
+                      textCapitalization: TextCapitalization.characters,
+                      maxLength: 2,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(
+                        counterText: '',
+                        border: InputBorder.none,
+                        hintText: 'FL',
+                        hintStyle: TextStyle(color: Colors.white54),
+                        labelText: 'State (optional, 2-letter)', labelStyle: TextStyle(color: Colors.white60),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: disabled ? null : _runReport,
+                            icon: const Icon(Icons.play_arrow),
+                            label: const Text('Run Report'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: disabled ? const Color(0xFF2A2A2A) : kBrandOrange,
+                              foregroundColor: disabled ? Colors.white38 : Colors.black,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: disabled ? null : _openCsv,
+                            icon: const Icon(Icons.file_download),
+                            label: const Text('Export CSV'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF1E1E1E),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            if (_busy)
+              const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator())),
+
+            if (_error != null) ...[
+              const SizedBox(height: 14),
+              Padding(padding: const EdgeInsets.all(8), child: Text(_error!, style: const TextStyle(color: Colors.redAccent))),
+            ],
+
+            if (!_busy && _error == null && _rows.isEmpty) ...[
+              const SizedBox(height: 14),
+              const Center(child: Text('No results yet', style: TextStyle(color: Colors.white54))),
+            ],
+
+            // Results
+            if (_rows.isNotEmpty && !inStateMode) ..._buildRegionMode(),
+            if (_rows.isNotEmpty && inStateMode) ..._buildStateMode(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------- REGION MODE: states first, colored, expandable -----------------
+  List<Widget> _buildRegionMode() {
+    final aggs = _aggregateByState(_rows);
+    return [
+      const SizedBox(height: 14),
+      for (final a in aggs) _StateCard(agg: a, pick: _pick, probOf: _prob, custOf: _cust),
+    ];
+  }
+
+  // ---------- STATE MODE: counties only, sorted by threat --------------------
+  List<Widget> _buildStateMode() {
+    return [
+      const SizedBox(height: 14),
+      for (final r in _rows) _CountyTile(row: r, pick: _pick),
+    ];
+  }
+
+  // small gray chip
+  Widget _chip(String label) => Chip(
+    label: Text(label),
+    backgroundColor: const Color(0xFF1B1B1B),
+    side: BorderSide(color: Colors.white.withOpacity(0.08)),
+    labelStyle: const TextStyle(fontSize: 12, color: Colors.white70),
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+  );
+}
+
+// ---- Models for aggregation -------------------------------------------------
+class _StateAgg {
+  _StateAgg({required this.state});
+  final String state;
+  num? maxProb;
+  double score = 0.0;
+  double totalCustomers = 0.0;
+  final List<Map<String,dynamic>> counties = [];
+}
+
+// ---- Widgets ---------------------------------------------------------------
+
+class _StateCard extends StatefulWidget {
+const _StateCard({super.key, required this.agg, required this.pick, required this.probOf, required this.custOf});
+  final _StateAgg agg;
+  final String Function(Map, List<String>, {String fallback}) pick;
+  final num? Function(Map) probOf;
+  final num? Function(Map) custOf;
+
+  @override
+  State<_StateCard> createState() => _StateCardState();
+}
+
+class _StateCardState extends State<_StateCard> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = widget.agg.maxProb ?? 0;
+    final c = widget.agg.totalCustomers.round();
+    final color = threatColorFromProb(p);
+
+    return Card(
+      color: const Color(0xFF0D0D0D),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: InkWell(
+        onTap: () => setState(() => _open = !_open),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  // colored dot
+                  Container(width: 12, height: 12, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(widget.agg.state,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  ),
+                  Text('Prob: ${p.round()}    Cust: $c'),
+                  const SizedBox(width: 8),
+                  Icon(_open ? Icons.expand_less : Icons.expand_more),
+                ],
+              ),
+              if (_open) const SizedBox(height: 10),
+              if (_open)
+                Column(
+                  children: [
+                    for (final r in widget.agg.counties) _CountyTile(row: r, pick: widget.pick),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CountyTile extends StatelessWidget {
+  const _CountyTile({required this.row, required this.pick});
+  final Map row;
+  final String Function(Map, List<String>, {String fallback}) pick;
+
+  @override
+  Widget build(BuildContext context) {
+    final county = pick(row, ['county','county_name','County'], fallback: '—');
+    final state  = pick(row, ['state','state_abbr','state_code','State'], fallback: '—');
+    final prob   = pick(row, ['wind_outage_probability','prob','Wind Outage Probability %']);
+    final threat = pick(row, ['threat_level','threat','Threat Level']);
+    final cust   = pick(row, ['predicted_customers_out','customers_out','customers','Predicted Customers Out']);
+    final crews  = pick(row, ['recommended_crews','suggested_crews','crew_count','Suggested Crews','Recommended Crews']);
+    final impact = pick(row, ['predicted_impact_date_peak','predicted_impact_date_(peak)','Predicted Impact Date (peak)']);
+    final staging   = pick(row, ['staging_suggestions','Staging Suggestions']);
+    final utilities = pick(row, ['primary_secondary_utilities','Primary + Secondary Utilities']);
+    final probNum = num.tryParse(prob.replaceAll('%','').replaceAll(',','')) ?? 0;
+    final color = threatColorFromProb(probNum);
+
+    Widget chip(String label) => Chip(
+      label: Text(label),
+      backgroundColor: const Color(0xFF1B1B1B),
+      side: BorderSide(color: Colors.white.withOpacity(0.08)),
+      labelStyle: const TextStyle(fontSize: 12, color: Colors.white70),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    );
+
+    return Card(
+      color: const Color(0xFF121212),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: ListTile(
+        leading: Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        title: Text('$county, $state'),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Wrap(
+            spacing: 10, runSpacing: -8, children: [
+            if (prob.isNotEmpty) chip('Prob: $prob'),
+            if (threat.isNotEmpty) chip('Threat: $threat'),
+            if (cust.isNotEmpty) chip('Customers: $cust'),
+            if (crews.isNotEmpty) chip('Crews: $crews'),
+            if (impact.isNotEmpty) chip('Impact: $impact'),
+            if (staging.isNotEmpty) chip('Staging: $staging'),
+            if (utilities.isNotEmpty) chip('Utilities: $utilities'),
+          ],
+          ),
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () {
+          // Future: deep-link to a county endpoint if you add it server-side.
+          // final uri = WxClient.countyUri(state: state, county: county, format: 'json');
+          // launchUrl(uri, mode: LaunchMode.externalApplication);
+        },
+      ),
+    );
+  }
+}
+
+
+

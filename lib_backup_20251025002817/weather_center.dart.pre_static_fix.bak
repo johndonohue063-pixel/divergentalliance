@@ -1,0 +1,316 @@
+﻿import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'services/wx_client.dart';
+
+const kBrandOrange = Color(0xFFF38B2B);
+
+class WeatherCenter extends StatefulWidget {
+  const WeatherCenter({super.key});
+  @override
+  State<WeatherCenter> createState() => _WeatherCenterState();
+}
+
+class _WeatherCenterState extends State<WeatherCenter> {
+  final WxClient wx = WxClient();
+
+  final TextEditingController _windCtl = TextEditingController(text: '35');
+  String _region = 'US';
+  int _maxZones = 10;
+  int _days = 3;
+
+  bool _busy = false;
+  String? _error;
+  List<Map<String, dynamic>> _rows = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    WxClient.discover(); // sets base URL per platform
+  }
+
+  @override
+  void dispose() {
+    _windCtl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _runReport() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+      _rows = const [];
+    });
+    try {
+      final wind = int.tryParse(_windCtl.text.trim()) ?? 35;
+      final data = await WxClient.nationalCsv(
+        region: _region,
+        maxZones: _maxZones,
+        windMphMin: wind,
+        daysOut: _days,
+      );
+      if (!mounted) return;
+      setState(() => _rows = data);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
+    } finally {
+      if (!mounted) return;
+      setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openCsv() async {
+    final wind = int.tryParse(_windCtl.text.trim()) ?? 35;
+    final uri = WxClient.nationalUri(
+      region: _region,
+      maxZones: _maxZones,
+      windMphMin: wind,
+      daysOut: _days,
+      format: 'csv',
+    );
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _openJson() async {
+    final wind = int.tryParse(_windCtl.text.trim()) ?? 35;
+    final uri = WxClient.nationalUri(
+      region: _region,
+      maxZones: _maxZones,
+      windMphMin: wind,
+      daysOut: _days,
+      format: 'json',
+    );
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final disabledHintStyle = TextStyle(color: Colors.white.withOpacity(0.35));
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        title: const Text('Divergent Weather Center'),
+        actions: [
+          IconButton(
+            tooltip: 'Open JSON',
+            onPressed: _busy ? null : _openJson,
+            icon: const Icon(Icons.open_in_new),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            Card(
+              color: const Color(0xFF121212),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  children: [
+                    // Row 1: Region + State (optional in future)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: _region,
+                              isExpanded: true,
+                              items: const ['US', 'EAST', 'CENTRAL', 'WEST']
+                                  .map((k) => DropdownMenuItem(
+                                        value: k,
+                                        child: Text(k),
+                                      ))
+                                  .toList(),
+                              onChanged: _busy
+                                  ? null
+                                  : (v) => setState(() => _region = v ?? 'US'),
+                              disabledHint:
+                                  Text(_region, style: disabledHintStyle),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<int>(
+                              value: _maxZones,
+                              isExpanded: true,
+                              items: const [5, 10, 15, 20]
+                                  .map((d) => DropdownMenuItem(
+                                        value: d,
+                                        child: Text(''),
+                                      ))
+                                  .toList(),
+                              onChanged:
+                                  _busy ? null : (v) => setState(() => _maxZones = v ?? 10),
+                              disabledHint: Text('',
+                                  style: disabledHintStyle),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // Row 2: Wind MPH + Days Out
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _windCtl,
+                            keyboardType: TextInputType.number,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              hintText: '35',
+                              hintStyle: TextStyle(color: Colors.white54),
+                              labelText: 'Wind mph min',
+                              labelStyle: TextStyle(color: Colors.white60),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<int>(
+                              value: _days,
+                              isExpanded: true,
+                              items: const [0, 1, 2, 3, 4, 5, 6, 7]
+                                  .map((d) => DropdownMenuItem(
+                                        value: d,
+                                        child: Text(''),
+                                      ))
+                                  .toList(),
+                              onChanged:
+                                  _busy ? null : (v) => setState(() => _days = v ?? 0),
+                              disabledHint:
+                                  Text('', style: disabledHintStyle),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // Row 3: Run + Export
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: _busy ? null : _runReport,
+                            icon: const Icon(Icons.play_arrow),
+                            label: const Text('Run Report'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor:
+                                  _busy ? const Color(0xFF2A2A2A) : kBrandOrange,
+                              foregroundColor:
+                                  _busy ? Colors.white38 : Colors.black,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: _busy ? null : _openCsv,
+                            icon: const Icon(Icons.file_download),
+                            label: const Text('Export CSV'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF1E1E1E),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            if (_busy)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: CircularProgressIndicator(),
+                ),
+              ),
+            if (_error != null)
+              const SizedBox(height: 14),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child:
+                    Text(_error!, style: const TextStyle(color: Colors.redAccent)),
+              ),
+
+            if (!_busy && _error == null && _rows.isEmpty)
+              const SizedBox(height: 14),
+            if (!_busy && _error == null && _rows.isEmpty)
+              const Center(child: Text('No results yet', style: TextStyle(color: Colors.white54))),
+
+            if (_rows.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              for (final r in _rows)
+                _ResultTile(
+                  county: '',
+                  state: '',
+                  customers: '',
+                  threat: '',
+                  prob: '',
+                  wind: '',
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ResultTile extends StatelessWidget {
+  final String county, state, customers, threat, prob, wind;
+  const _ResultTile({
+    required this.county,
+    required this.state,
+    required this.customers,
+    required this.threat,
+    required this.prob,
+    required this.wind,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: const Color(0xFF0D0D0D),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: ListTile(
+        title: Text(', '),
+        subtitle: Text('Predicted out:  • Threat:  • Prob:  • Wind: '),
+        trailing: const Icon(Icons.chevron_right),
+      ),
+    );
+  }
+}
+

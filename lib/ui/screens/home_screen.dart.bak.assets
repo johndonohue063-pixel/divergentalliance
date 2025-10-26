@@ -1,0 +1,129 @@
+﻿import 'package:flutter/material.dart';
+import '../widgets/image_button.dart';
+import '../../utils/SPARKS.dart';
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    GatewayPin.ensureInitialized();
+  }
+
+  Future<bool> _promptGatewayPin(BuildContext context) async {
+    final controller = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Enter Gateway PIN'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          obscureText: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(hintText: 'PIN'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final valid = await GatewayPin.verify(controller.text);
+              if (!ctx.mounted) return;
+              if (valid) {
+                Navigator.pop(ctx, true);
+              } else {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('Invalid PIN')),
+                );
+              }
+            },
+            child: const Text('Unlock'),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
+  }
+
+  Future<void> _openWeatherCenter() async {
+    final allowed = await _promptGatewayPin(context);
+    if (!mounted || !allowed) return;
+    Navigator.pushNamed(context, '/weather_center');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Divergent Alliance'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+      ),
+      body: Stack(
+        children: [
+          // Background hero
+          Positioned.fill(
+            child: Image.asset(
+              'assets/images/TRUCK_HERO.PNG',
+              fit: BoxFit.cover,
+            ),
+          ),
+          // Bottom scrim to lift the buttons
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withOpacity(0.5),
+                    Colors.black.withOpacity(0.8),
+                  ],
+                  stops: const [0.40, 0.78, 1.00],
+                ),
+              ),
+            ),
+          ),
+          // Bottom button rail with Spark buttons
+          SafeArea(
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ImageButton(
+                      label: 'Weather Center',
+                      height: 80,
+                      width: double.infinity,
+                      onPressed: _openWeatherCenter,
+                    ),
+                    const SizedBox(height: 12),
+                    ImageButton(
+                      label: 'Shop',
+                      height: 80,
+                      width: double.infinity,
+                      onPressed: () => Navigator.pushNamed(context, '/shop'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

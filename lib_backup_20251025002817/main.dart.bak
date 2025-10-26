@@ -1,0 +1,19 @@
+import "package:flutter/material.dart";
+import "ui/da_theme.dart";
+import "screens/castle_landing.dart";
+
+import 'screens/landing_screen.dart';
+
+void main() => runApp(const DivergentApp());
+
+class DivergentApp extends StatelessWidget {
+  const DivergentApp({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+        home: const LandingScreen(),
+        debugShowCheckedModeBanner: false,
+        theme: DATheme.build(),
+        home: const CastleLanding());
+  }
+}

@@ -1,0 +1,18 @@
+import 'package:flutter/material.dart';
+import 'package:divergent_alliance/screens/weather_center_pro.dart';
+
+/// Shim to keep legacy references compiling while WeatherCenterPro is used.
+/// Do not put any heavy logic here.
+class WeatherCenterGate extends StatelessWidget {
+  const WeatherCenterGate({super.key});
+
+  /// Some legacy code referenced these statics. Keep them so routes/guards compile.
+  static bool get authorized => true;
+  static String get route => '/weather-center';
+
+  @override
+  Widget build(BuildContext context) {
+    // Intentionally empty to avoid interfering with WeatherCenterPro.
+    return const SizedBox.shrink();
+  }
+}

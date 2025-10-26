@@ -1,0 +1,122 @@
+// lib/services/wx_api.dart
+//
+// WxApi shim that unblocks compilation. Replace the TODO parts with
+// real HTTP calls when ready.
+
+import 'dart:math' as math;
+
+class TimeseriesPoint {
+  final DateTime t;
+  final double gustKt;
+  final double sustainedKt;
+  const TimeseriesPoint({
+    required this.t,
+    required this.gustKt,
+    required this.sustainedKt,
+  });
+}
+
+class WxApi {
+  const WxApi();
+
+  // ---- Public timeseries used across screens --------------------------------
+  Future<List<TimeseriesPoint>> nbmTimeseries({
+    required double lat,
+    required double lon,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    return _mockSeries(start, end, biasKt: 0.0);
+  }
+
+  Future<List<TimeseriesPoint>> hrefTimeseries({
+    required double lat,
+    required double lon,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    return _mockSeries(start, end, biasKt: 3.0);
+  }
+
+  Future<List<TimeseriesPoint>> gfsTimeseries({
+    required double lat,
+    required double lon,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    return _mockSeries(start, end, biasKt: -2.0);
+  }
+
+  // Called by WeatherCenterPro (errors you saw)
+  Future<List<TimeseriesPoint>> hrrrTimeseries({
+    required double lat,
+    required double lon,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    return _mockSeries(start, end, biasKt: 1.5);
+  }
+
+  // Called by WeatherCenterPro (errors you saw)
+  Future<List<TimeseriesPoint>> nwsTimeseries({
+    required double lat,
+    required double lon,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    return _mockSeries(start, end, biasKt: 0.5);
+  }
+
+  // ---- Simple shims used by older screens -----------------------------------
+  // Signature kept loose so existing code compiles regardless of arg shape.
+  Future<dynamic> national({
+    String? scope,
+    String? state,
+    String? countyFips,
+  }) async {
+    // Return a compact fake payload similar to what a real call might return.
+    return {
+      'ok': true,
+      'scope': scope ?? 'Nationwide',
+      'state': state,
+      'countyFips': countyFips,
+      'generatedAt': DateTime.now().toIso8601String(),
+      'summary': {
+        'threat': 'Wind',
+        'suggestedCrews': 24,
+        'peakGustKt': 48.0,
+      },
+    };
+  }
+
+  Future<dynamic> health() async {
+    return {
+      'ok': true,
+      'service': 'WxApi',
+      'time': DateTime.now().toIso8601String(),
+    };
+  }
+
+  // ---- Mock generator to keep UI live ---------------------------------------
+  List<TimeseriesPoint> _mockSeries(
+      DateTime start,
+      DateTime end, {
+        double biasKt = 0.0,
+      }) {
+    final totalHours = end.difference(start).inHours;
+    final steps = totalHours <= 0 ? 1 : totalHours;
+    final out = <TimeseriesPoint>[];
+    for (var i = 0; i <= steps; i++) {
+      final t = start.add(Duration(hours: i));
+      final phase = i / steps;
+      final gust = 22 + 26 * math.sin(phase * math.pi) + biasKt;
+      final sustained = math.max(0, gust - 12 + 2 * math.cos(phase * math.pi));
+      out.add(TimeseriesPoint(
+        t: t,
+        gustKt: double.parse(gust.toStringAsFixed(1)),
+        sustainedKt: double.parse(sustained.toStringAsFixed(1)),
+      ));
+    }
+    return out;
+  }
+}

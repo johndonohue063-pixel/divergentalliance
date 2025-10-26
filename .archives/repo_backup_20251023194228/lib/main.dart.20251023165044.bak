@@ -1,0 +1,29 @@
+import 'package:flutter/material.dart';
+
+// Your landing screen
+import 'package:divergent_alliance/screens/castle_landing.dart';
+
+// Feature screens
+import 'pages/shop_under_construction.dart';
+import 'weather_center.dart';
+
+void main() {
+  runApp(const DivergentApp());
+}
+
+class DivergentApp extends StatelessWidget {
+  const DivergentApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Divergent Alliance',
+      home: const CastleLanding(), // keep your existing landing layout
+      routes: {
+        '/shop': (context) => ShopUnderConstruction(),
+        '/weather': (context) => const WeatherCenter(),
+      },
+    );
+  }
+}

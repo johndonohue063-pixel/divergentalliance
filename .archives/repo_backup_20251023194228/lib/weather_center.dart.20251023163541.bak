@@ -1,0 +1,135 @@
+﻿import 'package:flutter/material.dart';
+
+/// Minimal, compile-safe scaffold. Replace the stubs with your real UI/data later.
+
+class WeatherCenter extends StatefulWidget {
+  const WeatherCenter({Key? key}) : super(key: key);
+
+  @override
+  State<WeatherCenter> createState() => _WeatherCenterState();
+}
+
+class _WeatherCenterState extends State<WeatherCenter> {
+  // Temporary data stub to satisfy earlier references.
+  final List<Map<String, dynamic>> _rows = const [];
+
+  bool _hasAdjustedColumns() {
+    if (_rows.isEmpty) return false;
+    final r = _rows.first;
+    return r.containsKey('Wind Outage Probability % (Adjusted)') ||
+        r.containsKey('Predicted Customers Out (Adjusted)') ||
+        r.containsKey('Threat Level (Adjusted)');
+  }
+
+  @override
+Widget build(BuildContext context) {
+  return Scaffold(
+    appBar: AppBar(title: const Text('Weather Center')),
+    body: Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.cloud, size: 64),
+          const SizedBox(height: 12),
+          const Text('Weather Center is online', style: TextStyle(fontSize: 18)),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Back'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+/// ---- Helper models / widgets (stubs so the file compiles) ----
+
+class _StateAgg {
+  _StateAgg({
+    this.state = '',
+    this.maxProb,
+    this.totalCustomers = 0,
+    List<Map<String, dynamic>>? counties,
+  }) : counties = counties ?? <Map<String, dynamic>>[];
+
+  String state;
+  double? maxProb;
+  num totalCustomers;
+  List<Map<String, dynamic>> counties;
+}
+
+// Generic value picker signature used by previous code
+typedef ValuePicker = dynamic Function(Map row, List<String> keys,
+    {dynamic fallback});
+
+class _StateCard extends StatefulWidget {
+  const _StateCard({
+    Key? key,
+    required this.agg,
+    required this.pick,
+    required this.probOf,
+    required this.custOf,
+  }) : super(key: key);
+
+  final _StateAgg agg;
+  final ValuePicker pick;
+  final double Function(_StateAgg) probOf;
+  final num Function(_StateAgg) custOf;
+
+  @override
+  State<_StateCard> createState() => _StateCardState();
+}
+
+class _StateCardState extends State<_StateCard> {
+  @override
+Widget build(BuildContext context) {
+  return Scaffold(
+    appBar: AppBar(title: const Text('Weather Center')),
+    body: Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.cloud, size: 64),
+          const SizedBox(height: 12),
+          const Text('Weather Center is online', style: TextStyle(fontSize: 18)),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Back'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _CountyTile extends StatelessWidget {
+  const _CountyTile({Key? key, required this.row, required this.pick})
+      : super(key: key);
+
+  final Map row;
+  final ValuePicker pick;
+
+  @override
+Widget build(BuildContext context) {
+  return Scaffold(
+    appBar: AppBar(title: const Text('Weather Center')),
+    body: Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.cloud, size: 64),
+          const SizedBox(height: 12),
+          const Text('Weather Center is online', style: TextStyle(fontSize: 18)),
+          const SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Back'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+

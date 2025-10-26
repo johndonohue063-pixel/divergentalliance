@@ -1,0 +1,69 @@
+/* --- Theme tokens (tweak to match your design system) --- */
+:root {
+  --bg: #0e0f12;
+  --card: #17181c;
+  --text: #f5f6f8;
+  --muted: #a2a7b5;
+  --brand: #4f8cff;
+  --border: #2a2d35;
+
+  /* Severity palette — accessible on dark bg */
+  --sev-1: #16a34a; /* green */
+  --sev-2: #f59e0b; /* amber */
+  --sev-3: #f97316; /* orange */
+  --sev-4: #ef4444; /* red */
+  --sev-5: #b91c1c; /* dark red */
+}
+
+/* Page */
+.weather-center { padding: 16px; color: var(--text); background: var(--bg); min-height: 100vh; }
+.wc-header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:12px; }
+.wc-title { font-size: 20px; margin: 0; }
+.wc-actions { display:flex; gap:8px; }
+
+.btn { border: 1px solid var(--border); background: var(--card); color: var(--text); padding: 8px 12px; border-radius: 10px; }
+.btn.primary { background: var(--brand); border-color: transparent; color: #fff; }
+.btn:disabled { opacity: .6; cursor: not-allowed; }
+
+/* Filters (sticky, replaces modal) */
+.filters.sticky { position: sticky; top: 0; z-index: 1; background: linear-gradient(var(--bg), var(--bg)); padding: 10px 0 12px; border-bottom: 1px solid var(--border); }
+.filters .filters-row { display:grid; grid-template-columns: 1fr; gap:12px; }
+@media (min-width: 720px) {
+  .filters .filters-row { grid-template-columns: 1fr 1fr 1fr; }
+}
+.filter-group .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.chip-row { display:flex; gap:8px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--border); background: var(--card); color: var(--text); padding:6px 10px; border-radius: 12px; font-size: 13px; }
+.chip.selected { outline: 2px solid var(--brand); border-color: transparent; }
+.range-value { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+/* Results */
+.results { list-style:none; padding:0; margin: 12px 0 80px; display:flex; flex-direction:column; gap:8px; }
+.result { display:flex; align-items:center; justify-content:space-between; gap:12px; background: var(--card); border: 1px solid var(--border); border-left-width: 6px; border-radius: 12px; padding: 10px 12px; }
+.result-main { display:flex; flex-direction:column; gap:2px; }
+.result-name { font-weight: 600; }
+.result-meta { font-size: 12px; color: var(--muted); }
+.result-side { display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+.sev-badge { font-size: 12px; font-weight: 700; }
+
+/* Severity color-coding (left border + badge color) */
+.severity-1 { border-left-color: var(--sev-1); }
+.severity-2 { border-left-color: var(--sev-2); }
+.severity-3 { border-left-color: var(--sev-3); }
+.severity-4 { border-left-color: var(--sev-4); }
+.severity-5 { border-left-color: var(--sev-5); }
+.severity-1 .sev-badge { color: var(--sev-1); }
+.severity-2 .sev-badge { color: var(--sev-2); }
+.severity-3 .sev-badge { color: var(--sev-3); }
+.severity-4 .sev-badge { color: var(--sev-4); }
+.severity-5 .sev-badge { color: var(--sev-5); }
+
+/* Empty state */
+.empty { color: var(--muted); padding: 20px 0; text-align: center; }
+
+/* ---- Castle main landing page: pitch black sky ---- */
+.castle-landing .sky {
+  background: #000 !important;  /* pitch black */
+  /* If a gradient existed previously, remove it: */
+  background-image: none !important;
+}

@@ -1,0 +1,115 @@
+// ignore_for_file: unused_element
+import 'package:flutter/material.dart';
+
+/// Minimal, compile-safe scaffold. Replace the stubs with your real UI/data later.
+
+class WeatherCenter extends StatefulWidget {
+  const WeatherCenter({super.key});
+  @override
+  State<WeatherCenter> createState() => _WeatherCenterState();
+}
+
+class _WeatherCenterState extends State<WeatherCenter> {
+  // Temporary data stub to satisfy earlier references.
+  final List<Map<String, dynamic>> _rows = const [];
+
+  bool _hasAdjustedColumns() {
+    if (_rows.isEmpty) return false;
+    final r = _rows.first;
+    return r.containsKey('Wind Outage Probability % (Adjusted)') ||
+        r.containsKey('Predicted Customers Out (Adjusted)') ||
+        r.containsKey('Threat Level (Adjusted)');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Visible UI so you don't get a black screen
+    return Scaffold(
+      appBar: AppBar(title: const Text('Weather Center')),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud, size: 64),
+            const SizedBox(height: 12),
+            const Text('Weather Center is online',
+                style: TextStyle(fontSize: 18)),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Back'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// ---- Helper models / widgets (stubs so the file compiles) ----
+
+typedef ValuePicker = dynamic Function(Map row, List<String> keys,
+    {dynamic fallback});
+
+class _StateAgg {
+  _StateAgg({
+    List<Map<String, dynamic>>? counties,
+  }) : counties = counties ?? <Map<String, dynamic>>[];
+  String? state;
+  double? maxProb;
+  num? totalCustomers;
+  List<Map<String, dynamic>> counties;
+}
+
+class _StateCard extends StatefulWidget {
+  const _StateCard({
+    required this.agg,
+    required this.pick,
+    required this.probOf,
+    required this.custOf,
+  });
+
+  final _StateAgg agg;
+  final ValuePicker pick;
+  final double Function(_StateAgg) probOf;
+  final num Function(_StateAgg) custOf;
+
+  @override
+  State<_StateCard> createState() => _StateCardState();
+}
+
+class _StateCardState extends State<_StateCard> {
+  @override
+  Widget build(BuildContext context) {
+    // Minimal stub; render nothing for now
+    return const SizedBox.shrink();
+  }
+}
+
+class _CountyTile extends StatelessWidget {
+  const _CountyTile({required this.row, required this.pick});
+
+  final Map row;
+  final ValuePicker pick;
+
+  @override
+  Widget build(BuildContext context) {
+    final county = pick(row, ['county', 'county_name', 'County'],
+                fallback: 'ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â')
+            ?.toString() ??
+        'ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â';
+    final state = pick(row, ['state', 'state_abbr', 'state_code', 'State'],
+                fallback: 'ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â')
+            ?.toString() ??
+        'ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â';
+    final threat =
+        pick(row, ['threat_level', 'threat', 'Threat Level'], fallback: '')
+                ?.toString() ??
+            '';
+    return ListTile(
+      dense: true,
+      title: const Text(', '),
+      subtitle: threat.isEmpty ? null : Text(threat),
+    );
+  }
+}

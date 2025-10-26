@@ -1,0 +1,47 @@
+import 'package:flutter/material.dart';
+import 'ui/da_brand.dart';
+import 'screens/truck_landing.dart';
+import 'screens/castle_landing.dart';
+import 'package:divergent_alliance/screens/weather_center_pro.dart';
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const DivergentApp());
+}
+
+class DivergentApp extends StatelessWidget {
+  const DivergentApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ThemeData.dark().copyWith(
+      scaffoldBackgroundColor: Colors.black,
+      canvasColor: const Color(0xFF0E0E0E),
+      cardColor: const Color(0xFF121212),
+      colorScheme: ThemeData.dark().colorScheme.copyWith(
+            primary: DABrand.orange,
+            secondary: DABrand.orange,
+            surface: const Color(0xFF121212),
+            onPrimary: Colors.black,
+            onSurface: Colors.white,
+          ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 2,
+      ),
+    );
+
+    return MaterialApp(
+      routes: {
+        '/weather-center-pro': (_) => const SizedBox.shrink(),
+    '/weatherPro': (_) => const SizedBox.shrink(),
+    '/weather-center-pro': (_) => const SizedBox.shrink(),
+      },
+      debugShowCheckedModeBanner: false,
+      title: 'Divergent Alliance',
+      theme: theme,
+      home: const CastleLanding(),
+    );
+  }
+}

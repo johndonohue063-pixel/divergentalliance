@@ -1,0 +1,221 @@
+import 'package:flutter/material.dart';
+import 'package:divergent_alliance/screens/weather_center_pro.dart';
+
+const kBrandOrange = Color(0xFFFF6A00);
+
+class CastleLanding extends StatelessWidget {
+  const CastleLanding({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        children: [
+          // Background image if present, else gradient
+          Positioned.fill(
+            child: Image.asset(
+              'assets/images/truck_hero.jpg',
+              fit: BoxFit.cover,
+              errorBuilder: (c, e, s) {
+                return Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF0F1115), Color(0xFF1B1F2A)],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          // Dark overlay for readability
+          Positioned.fill(
+            child: Container(color: Colors.black.withOpacity(0.45)),
+          ),
+
+          // Content
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header brand row
+                  Row(
+                    children: const [
+                      Icon(Icons.electric_bolt_rounded, size: 28, color: kBrandOrange),
+                      SizedBox(width: 10),
+                      Text(
+                        'Divergent Alliance',
+                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+
+                  // Hero title
+                  const Text(
+                    'Operations Castle',
+                    style: TextStyle(fontSize: 40, height: 1.1, fontWeight: FontWeight.w800, color: Colors.white),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Forecast, stage, and deploy with precision.',
+                    style: TextStyle(fontSize: 16, color: Colors.white70),
+                  ),
+
+                  const SizedBox(height: 28),
+
+                  // Primary CTAs
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _BigCTA(
+                          icon: Icons.cloud_sync_rounded,
+                          label: 'Weather Center Pro',
+                          subtitle: 'Wind, snow and ice, hurricanes',
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const WeatherCenterPro()),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  Row(
+                    children: const [
+                      Expanded(
+                        child: _SmallCTA(
+                          icon: Icons.bolt_rounded,
+                          label: 'StormPack',
+                          caption: 'Rapid kits',
+                        ),
+                      ),
+                      SizedBox(width: 14),
+                      Expanded(
+                        child: _SmallCTA(
+                          icon: Icons.storefront_rounded,
+                          label: 'Utility Store',
+                          caption: 'Custom supply',
+                        ),
+                      ),
+                      SizedBox(width: 14),
+                      Expanded(
+                        child: _SmallCTA(
+                          icon: Icons.groups_2_rounded,
+                          label: 'Crew Manager',
+                          caption: 'Roster and dispatch',
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const Spacer(),
+
+                  // Footer info
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: const [
+                      Text('Houston, Chicago, and Nationwide', style: TextStyle(color: Colors.white60)),
+                      Text('v1', style: TextStyle(color: Colors.white38)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+      backgroundColor: const Color(0xFF0E1116),
+    );
+  }
+}
+
+class _BigCTA extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final VoidCallback onTap;
+  const _BigCTA({required this.icon, required this.label, required this.subtitle, required this.onTap, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withOpacity(0.12)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: kBrandOrange.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(icon, size: 28, color: kBrandOrange),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  Text(subtitle, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: Colors.white70),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SmallCTA extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String caption;
+  const _SmallCTA({required this.icon, required this.label, required this.caption, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withOpacity(0.10)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: kBrandOrange),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(caption, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              ],
+            ),
+          ),
+          const Icon(Icons.lock_clock_rounded, size: 18, color: Colors.white30),
+        ],
+      ),
+    );
+  }
+}
