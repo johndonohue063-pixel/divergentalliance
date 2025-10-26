@@ -1,15 +1,5 @@
-﻿import 'package:flutter/material.dart';
 import "package:flutter/material.dart";
 import "../widgets/wc_filters.dart";
-
-// === Divergent brand theme (restored) ===
-const Color kBg     = Color(0xFF0E0E10);
-const Color kCard   = Color(0xFF17181B);
-const Color kBorder = Color(0xFF2A2D31);
-const Color kText   = Colors.white;
-const Color kMuted  = Colors.white70;
-const Color kBrand  = Color(0xFFFF7A00);
-
 
 /// Weather Center with inline filters (no modal). Pressing Run Report refreshes
 /// results in place. Color-coded severity on left border.
@@ -29,7 +19,7 @@ class _WeatherCenterProState extends State<WeatherCenterPro> {
   // Results
   final List<_ReportRow> _rows = [];
   bool _loading = false;  
-  // Suggested Crews calculator â€” wind-driven with severity and window boosts.
+  // Suggested Crews calculator — wind-driven with severity and window boosts.
   // Keeps everything else intact.
   int _crewFor(int gust, int sustained, int sev, double windowHours) {
     final wind = gust > sustained ? gust : sustained;
@@ -80,14 +70,14 @@ class _WeatherCenterProState extends State<WeatherCenterPro> {
 
   @override
   Widget build(BuildContext context) {
-//     const bg = kBg;
-//     const card = kCard;
-//     const border = kBorder;
+    const bg = kBg;
+    const card = kCard;
+    const border = kBorder;
 
     return Scaffold(
-      backgroundColor: kBg,
+      backgroundColor: bg,
       appBar: AppBar(
-        backgroundColor: kBg,
+        backgroundColor: bg,
         elevation: 0,
         foregroundColor: kText,
         title: const Text("Weather Center"),
@@ -108,7 +98,7 @@ class _WeatherCenterProState extends State<WeatherCenterPro> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
               ),
               onPressed: _loading ? null : _runReport,
-              child: Text(_loading ? "Runningâ€¦" : "Run Report", style: const TextStyle(fontWeight: FontWeight.w800)),
+              child: Text(_loading ? "Running…" : "Run Report", style: const TextStyle(fontWeight: FontWeight.w800)),
             ),
           ),
         ],
@@ -122,9 +112,9 @@ class _WeatherCenterProState extends State<WeatherCenterPro> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: kCard,
+                color: card,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: kBorder),
+                border: Border.all(color: border),
               ),
               child: WcFilters(
                 gustSelected: _gust,
@@ -236,7 +226,7 @@ class _WeatherCenterProState extends State<WeatherCenterPro> {
               children: [
                 Text(row.name, style: const TextStyle(color: kText, fontWeight: FontWeight.w600)),
                 SizedBox(height: 2),
-                Text("Gust:  mph Â· Sustained:  mph", style: const TextStyle(color: kMuted, fontSize: 12)),
+                Text("Gust:  mph · Sustained:  mph", style: const TextStyle(color: kMuted, fontSize: 12)),
               ],
             ),
           ),
